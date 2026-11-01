@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="快鲸">
+<meta name="theme-color" content="#0d1117">
+<title>快鲸</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="mainView">
+    <div id="tabBar">
+      <button class="tab active" data-mode="0">漫画</button>
+      <button class="tab" data-mode="1">视频</button>
+      <button class="tab" data-mode="2">社区</button>
+    </div>
+    <div id="toolbar">
+      <div id="searchRow">
+        <input id="searchInput" type="text" placeholder="搜索..." autocomplete="off">
+        <button id="searchBtn">搜索</button>
+        <button id="catBtn">分类 ▾</button>
+      </div>
+      <div id="catPanel" class="hidden">
+        <div id="catClassRow" class="catRow"><label>分类</label><div class="chips" id="catClassChips"></div></div>
+        <div id="catTagRow" class="catRow"><label>标签</label><div class="chips" id="catTagChips"></div></div>
+        <div id="catChildRow" class="catRow"><label>子类</label><div class="chips" id="catChildChips"></div></div>
+      </div>
+      <div id="hotRow"><span id="hotLabel">热门:</span><div id="hotChips"></div></div>
+    </div>
+    <div id="grid"></div>
+    <div id="loadMore" class="hidden">加载中...</div>
+  </div>
+  <div id="readerView" class="hidden">
+    <div id="readerHeader">
+      <button id="readerBack">←</button>
+      <span id="readerTitle"></span>
+    </div>
+    <div id="readerList"></div>
+  </div>
+  <div id="playerView" class="hidden">
+    <div id="playerHeader">
+      <button id="playerBack">←</button>
+      <span id="playerTitle"></span>
+    </div>
+    <div id="playerBody">
+      <video id="videoEl" controls playsinline webkit-playsinline preload="metadata"></video>
+      <div id="playerStatus"></div>
+    </div>
+  </div>
+  <div id="forumView" class="hidden">
+    <div id="forumHeader">
+      <button id="forumBack">←</button>
+      <span id="forumTitle">帖子</span>
+    </div>
+    <div id="forumBody"></div>
+  </div>
+  <div id="toast" class="hidden"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
