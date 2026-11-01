@@ -852,7 +852,8 @@ async function openVod(v){
     const m3u8=((r.data||{}).vod_play_url||{}).h264||'';
     if(!m3u8)throw new Error('获取播放地址失败');
     playerStatus.textContent='';
-    const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl');
+    const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.userAgent.indexOf('Mac')>=0&&navigator.maxTouchPoints>1);
+    const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl')||videoEl.canPlayType('application/x-mpegURL')||isApple;
     if(canNative){
       videoEl.src=m3u8;
       videoEl.play().catch(()=>{});
@@ -1163,12 +1164,22 @@ function renderExtEpisodes(d,detail){
 }
 async function playExtDrama(id,ep,title){
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
-  openExtPlay(RELAY_BASE+'/hls?type=51dbe&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep), title+' 第'+ep+'集');
+  try{
+    const r=await fetch(RELAY_BASE+'/resolve?type=51dbe&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep));
+    const j=await r.json();
+    if(j.error||!j.m3u8)throw new Error(j.error||'解析失败');
+    openExtPlay(j.m3u8, title+' 第'+ep+'集');
+  }catch(e){$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtVideo(v){
   $('extTitle').textContent=v.name;
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
-  openExtPlay(RELAY_BASE+'/hls?type=91&key='+encodeURIComponent(v.key), v.name);
+  try{
+    const r=await fetch(RELAY_BASE+'/resolve?type=91&key='+encodeURIComponent(v.key));
+    const j=await r.json();
+    if(j.error||!j.m3u8)throw new Error(j.error||'解析失败');
+    openExtPlay(j.m3u8, v.name);
+  }catch(e){$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtNovel(n){
   $('extTitle').textContent=n.name;
@@ -1204,7 +1215,8 @@ async function openExtPlay(hlsUrl,title){
   try{
     if(!hlsUrl)throw new Error('解析失败');
     playerStatus.textContent='';
-    const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl');
+    const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.userAgent.indexOf('Mac')>=0&&navigator.maxTouchPoints>1);
+    const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl')||videoEl.canPlayType('application/x-mpegURL')||isApple;
     if(canNative){
       videoEl.src=hlsUrl;
       videoEl.play().catch(()=>{});
