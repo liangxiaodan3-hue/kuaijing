@@ -1039,8 +1039,14 @@ async function loadEncImg(container,url){
     container.insertBefore(img,container.firstChild);
   }catch(e){}
 }
+function normCover(u){
+  if(!u)return u;
+  // 旧图床域已死, 同一路径改写为现行 drleao 图床 (无需 auth_key 也能取到密文)
+  return u.replace(/expose\.eisees\.com/gi,'pic.drleao.cn');
+}
 function extCover(container,url){
   if(!url)return;
+  url=normCover(url);
   if(/drleao\.cn/i.test(url)){ loadEncImg(container,url); return; }
   const img=document.createElement('img');
   img.loading='lazy';img.src=url;img.alt='';
