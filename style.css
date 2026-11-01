@@ -177,6 +177,7 @@ input { border:none; outline:none; background:var(--surface2); color:var(--text)
 .extCard .extCover { position:relative; width:100%; background:var(--surface2); border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center; }
 .extCard.drama .extCover { aspect-ratio:3/4; }
 .extCard.video .extCover { aspect-ratio:16/9; }
+.extCard.novel .extCover { aspect-ratio:3/4; background:linear-gradient(135deg,#3a2a5e,#14101f); }
 .extCard .extCover img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 .extCard .extCover span { font-size:26px; opacity:.5; }
 .extBadge { position:absolute; right:6px; bottom:6px; font-style:normal; font-size:10px; font-weight:600; padding:2px 7px; border-radius:8px; background:rgba(0,0,0,.72); color:#fff; }

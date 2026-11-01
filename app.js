@@ -1062,7 +1062,7 @@ function renderExtCats(){
   const row=$('extCatRow');
   row.innerHTML='';
   const cats=new Set(['\u5168\u90e8']);
-  const list=extSection===0?extData.dramas:extSection===1?extData.videos:[];
+  const list=extSection===0?extData.dramas:extSection===1?extData.videos:extData.novels;
   for(const it of list){if(it.cat)cats.add(it.cat);}
   cats.forEach(c=>{
     const b=document.createElement('span');
@@ -1128,7 +1128,8 @@ function renderExtVideoCard(v){
 function renderExtNovelCard(n){
   const div=document.createElement('div');
   div.className='extCard novel';
-  div.innerHTML='<div class="extNovelBox">'+esc(n.name)+'</div>';
+  div.innerHTML='<div class="extCover novel"><span>\ud83d\udcd6</span><i class="extBadge">'+esc(n.cat||'\u5c0f\u8bf4')+'</i></div>'+
+    '<div class="extName">'+esc(n.name)+'</div>';
   div.addEventListener('click',()=>openExtNovel(n));
   $('extBody').appendChild(div);
 }
@@ -1162,24 +1163,12 @@ function renderExtEpisodes(d,detail){
 }
 async function playExtDrama(id,ep,title){
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
-  try{
-    const r=await fetch(RELAY_BASE+'/resolve?type=51dbe&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep));
-    const j=await r.json();
-    if(j.error)throw new Error(j.error);
-    if(!j.m3u8)throw new Error('未获取到播放地址');
-    openExtPlay(j.m3u8,j.cdnAuthKey,j.cdnAuthValue,title+' 第'+ep+'集');
-  }catch(e){$('extBody').innerHTML='<div class="loadingHint">解析失败: '+esc(e.message)+'</div>';}
+  openExtPlay(RELAY_BASE+'/hls?type=51dbe&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep), title+' 第'+ep+'集');
 }
 async function openExtVideo(v){
   $('extTitle').textContent=v.name;
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
-  try{
-    const r=await fetch(RELAY_BASE+'/resolve?type=91&key='+encodeURIComponent(v.key));
-    const j=await r.json();
-    if(j.error)throw new Error(j.error);
-    if(!j.m3u8)throw new Error('未获取到播放地址');
-    openExtPlay(j.m3u8,null,null,v.name);
-  }catch(e){$('extBody').innerHTML='<div class="loadingHint">解析失败: '+esc(e.message)+'</div>';}
+  openExtPlay(RELAY_BASE+'/hls?type=91&key='+encodeURIComponent(v.key), v.name);
 }
 async function openExtNovel(n){
   $('extTitle').textContent=n.name;
@@ -1206,30 +1195,32 @@ function renderExtNovel(n,data){
   else for(const p of paras){const pe=document.createElement('p');pe.textContent=p;wrap.appendChild(pe);}
   body.appendChild(wrap);
 }
-async function openExtPlay(m3u8,authKey,authVal,title){
+async function openExtPlay(hlsUrl,title){
   playerReturn='externalView';
   playerTitle.textContent=title;
   playerStatus.textContent='获取播放地址...';
   videoEl.src='';
   showView('playerView');
   try{
-    if(!m3u8)throw new Error('解析失败');
+    if(!hlsUrl)throw new Error('解析失败');
     playerStatus.textContent='';
     const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl');
-    if(!authKey&&canNative){videoEl.src=m3u8;videoEl.play().catch(()=>{});return;}
+    if(canNative){
+      videoEl.src=hlsUrl;
+      videoEl.play().catch(()=>{});
+      return;
+    }
     await ensureHls();
     if(window.Hls&&window.Hls.isSupported()){
       if(videoEl._hls)videoEl._hls.destroy();
-      const opts={maxBufferLength:30,maxMaxBufferLength:60};
-      if(authKey&&authVal)opts.xhrSetup=(xhr)=>{xhr.setRequestHeader(authKey,authVal);};
-      const hls=new window.Hls(opts);
-      hls.loadSource(m3u8);
+      const hls=new window.Hls({maxBufferLength:30,maxMaxBufferLength:60});
+      hls.loadSource(hlsUrl);
       hls.attachMedia(videoEl);
       hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{videoEl.play().catch(()=>{});});
-      hls.on(window.Hls.Events.ERROR,(ev,data)=>{if(data.fatal){playerStatus.textContent='播放错误: '+data.details;hls.destroy();}});
+      hls.on(window.Hls.Events.ERROR,(ev,data)=>{
+        if(data.fatal){playerStatus.textContent='播放错误: '+data.details;hls.destroy();}
+      });
       videoEl._hls=hls;
-    }else if(canNative&&!authKey){
-      videoEl.src=m3u8;videoEl.play().catch(()=>{});
     }else{
       playerStatus.textContent='浏览器不支持 HLS 播放';
     }
