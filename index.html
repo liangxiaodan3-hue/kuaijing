@@ -21,6 +21,7 @@
       <button class="tab" data-mode="1">视频</button>
       <button class="tab" data-mode="2">社区</button>
       <button class="tab" data-mode="3">小说</button>
+      <button class="tab" data-mode="5">短剧</button>
       <button class="tab" data-mode="4">历史</button>
     </div>
     <div id="toolbar">
@@ -86,6 +87,25 @@
       </div>
       <div id="novelChapterList"></div>
     </div>
+  </div>
+  <div id="externalView" class="hidden">
+    <div id="extHeader">
+      <button id="extBack">←</button>
+      <span id="extTitle">外部资源</span>
+      <span id="extHint">需翻墙</span>
+    </div>
+    <div id="extSegBar">
+      <button class="extSeg active" data-seg="0">短剧</button>
+      <button class="extSeg" data-seg="1">视频</button>
+      <button class="extSeg" data-seg="2">小说</button>
+    </div>
+    <div id="extSearchRow">
+      <input id="extSearchInput" type="text" placeholder="搜索..." autocomplete="off">
+    </div>
+    <div id="extCatRow" class="extChips"></div>
+    <div id="extHotRow" class="extChips hidden"></div>
+    <div id="extStatus" class="hidden"></div>
+    <div id="extBody"></div>
   </div>
   <div id="toast" class="hidden"></div>
 </div>
