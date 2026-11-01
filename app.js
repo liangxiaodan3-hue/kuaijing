@@ -429,16 +429,19 @@ function lazyImg(container,url){
   }).catch(()=>{});
 }
 /* ===== infinite scroll ===== */
-window.addEventListener('scroll',()=>{
+function onInfiniteScroll(){
   if($('mainView').classList.contains('hidden'))return;
   if(loading)return;
   if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd))return;
-  if(window.innerHeight+window.scrollY>=document.body.offsetHeight-300){
+  const se=document.scrollingElement||document.documentElement;
+  if(se.scrollTop+se.clientHeight>=se.scrollHeight-400){
     if(mode===0){comicPage++;doLoad(false);}
     else if(mode===1){vodPage++;doLoad(false);}
     else{forumPage++;doLoad(false);}
   }
-});
+}
+window.addEventListener('scroll',onInfiniteScroll,{passive:true});
+document.addEventListener('scroll',onInfiniteScroll,{passive:true});
 /* ===== comic reader ===== */
 let chaptersCache=[],loadedChapters=[],currentChapterIdx=-1,loadingChapter=false;
 async function openComic(comic){
@@ -459,20 +462,15 @@ async function openComic(comic){
   }
 }
 function renderChapterButtons(){
-  const div=document.createElement('div');
-  div.className='chapterDivider';
-  div.textContent='共 '+chaptersCache.length+' 章 · 点击章节名跳转';
-  readerList.innerHTML='';
-  readerList.appendChild(div);
-  const wrap=document.createElement('div');
-  wrap.style.cssText='display:flex;flex-wrap:wrap;gap:6px;padding:10px;justify-content:center;';
+  const list=$('chapterList');
+  list.innerHTML='';
   for(const ch of chaptersCache){
     const btn=document.createElement('button');
-    btn.className='chip';btn.textContent=ch.name+(ch.pay!==0?' \uD83D\uDD12':'');
-    btn.addEventListener('click',()=>loadChapterPages(ch.id,ch.name,ch.pay));
-    wrap.appendChild(btn);
+    btn.className='chapterItem';
+    btn.textContent=ch.name+(ch.pay!==0?' \u{1F512}':'');
+    btn.addEventListener('click',()=>{closeChapterPanel();loadChapterPages(ch.id,ch.name,ch.pay);});
+    list.appendChild(btn);
   }
-  readerList.appendChild(wrap);
 }
 async function loadChapterPages(cid,cname,pay){
   if(loadingChapter)return;
@@ -649,7 +647,13 @@ async function getChapterPages(ch){
   if(pages.length<=1&&!auth)pages=await enumeratePages(pages[0]||imglist,domain);
   return pages;
 }
-$('readerBack').addEventListener('click',()=>showView('mainView'));
+let readerLandscape=false;
+function closeChapterPanel(){$('chapterPanel').classList.add('hidden');}
+function openChapterPanel(){$('chapterPanel').classList.remove('hidden');}
+$('readerCatalog').addEventListener('click',()=>{const p=$('chapterPanel');if(p.classList.contains('hidden'))openChapterPanel();else closeChapterPanel();});
+$('chapterPanelClose').addEventListener('click',closeChapterPanel);
+$('readerRotate').addEventListener('click',()=>{readerLandscape=!readerLandscape;$('readerView').classList.toggle('landscape',readerLandscape);$('readerRotate').textContent=readerLandscape?'竖屏':'旋转';});
+$('readerBack').addEventListener('click',()=>{if(readerLandscape){readerLandscape=false;$('readerView').classList.remove('landscape');$('readerRotate').textContent='旋转';}closeChapterPanel();showView('mainView');});
 /* ===== video player ===== */
 let hlsLoaded=false;
 async function ensureHls(){
