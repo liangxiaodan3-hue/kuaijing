@@ -20,6 +20,8 @@
       <button class="tab active" data-mode="0">漫画</button>
       <button class="tab" data-mode="1">视频</button>
       <button class="tab" data-mode="2">社区</button>
+      <button class="tab" data-mode="3">小说</button>
+      <button class="tab" data-mode="4">历史</button>
     </div>
     <div id="toolbar">
       <div id="searchRow">
@@ -69,6 +71,21 @@
       <span id="forumTitle">帖子</span>
     </div>
     <div id="forumBody"></div>
+  </div>
+  <div id="novelView" class="hidden">
+    <div id="novelHeader">
+      <button id="novelBack">←</button>
+      <span id="novelTitle"></span>
+      <button id="novelCatalog">目录</button>
+    </div>
+    <div id="novelBody"></div>
+    <div id="novelChapterPanel" class="hidden">
+      <div id="novelChapterPanelHeader">
+        <span>章节目录</span>
+        <button id="novelChapterPanelClose">×</button>
+      </div>
+      <div id="novelChapterList"></div>
+    </div>
   </div>
   <div id="toast" class="hidden"></div>
 </div>

@@ -128,6 +128,7 @@ async function loadXorImage(url){
   }
   throw lastErr;
 }
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function resolveImgUrl(pic){
   if(!pic)return null;
   if(pic.startsWith('http'))return pic;
@@ -155,6 +156,8 @@ let vodType='',vodPid='',vodPage=1,vodEnd=false,vodKw='',vodKwMode=false;
 let forumBid='',forumPage=1,forumEnd=false,forumKw='',forumKwMode=false;
 let loading=false,catPanelOpen=false,forumRawCount=0;
 let currentComic=null;
+let novelCid='',novelTid='',novelPage=1,novelEnd=false,novelKw='',novelKwMode=false;
+let currentNovel=null,novelChapters=[],novelChapterIdx=-1,novelBookName='';
 const $=id=>document.getElementById(id);
 const grid=$('grid'),loadMore=$('loadMore'),searchInput=$('searchInput');
 const catPanel=$('catPanel'),hotChips=$('hotChips'),catClassChips=$('catClassChips'),catTagChips=$('catTagChips'),catChildChips=$('catChildChips');
@@ -162,6 +165,7 @@ const catClassRow=$('catClassRow'),catTagRow=$('catTagRow'),catChildRow=$('catCh
 const readerView=$('readerView'),readerList=$('readerList'),readerTitle=$('readerTitle');
 const playerView=$('playerView'),videoEl=$('videoEl'),playerStatus=$('playerStatus'),playerTitle=$('playerTitle');
 const forumView=$('forumView'),forumBody=$('forumBody'),forumTitle=$('forumTitle');
+const novelView=$('novelView'),novelBody=$('novelBody'),novelTitle=$('novelTitle');
 const toastEl=$('toast');
 function showToast(msg,dur=2000){
   toastEl.textContent=msg;toastEl.classList.remove('hidden');
@@ -181,19 +185,23 @@ function switchMode(m){
   comicPage=1;comicEnd=false;comicKw='';comicKwMode=false;
   vodPage=1;vodEnd=false;vodKw='';vodKwMode=false;
   forumPage=1;forumEnd=false;forumKw='';forumKwMode=false;
-  comicCid='';comicTid='';vodType='';vodPid='';forumBid='';
+  novelPage=1;novelEnd=false;novelKw='';novelKwMode=false;
+  comicCid='';comicTid='';vodType='';vodPid='';forumBid='';novelCid='';novelTid='';
   grid.innerHTML='';
   loadMore.classList.add('hidden');
+  if(mode===4){renderHistory();return;}
   reloadCats();
   doLoad(true);
 }
 $('searchBtn').addEventListener('click',doSearch);
 searchInput.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
 function doSearch(){
+  if(mode===4)return;
   const kw=searchInput.value.trim();
   if(mode===0){comicKw=kw;comicKwMode=!!kw;comicPage=1;comicEnd=false;}
   else if(mode===1){vodKw=kw;vodKwMode=!!kw;vodPage=1;vodEnd=false;}
-  else{forumKw=kw;forumKwMode=!!kw;forumPage=1;forumEnd=false;}
+  else if(mode===2){forumKw=kw;forumKwMode=!!kw;forumPage=1;forumEnd=false;}
+  else{novelKw=kw;novelKwMode=!!kw;novelPage=1;novelEnd=false;}
   grid.innerHTML='';
   doLoad(true);
 }
@@ -202,6 +210,7 @@ $('catBtn').addEventListener('click',()=>{
   catPanel.classList.toggle('hidden',!catPanelOpen);
 });
 let comicClassesData=[],comicTagsData=[],vodTypesData=[],forumBoardsData=[];
+let novelClassesData=[],novelTagsData=[];
 async function reloadCats(){
   catClassChips.innerHTML='';catTagChips.innerHTML='';catChildChips.innerHTML='';
   catClassRow.classList.add('hidden');catTagRow.classList.add('hidden');catChildRow.classList.add('hidden');
@@ -209,7 +218,7 @@ async function reloadCats(){
   try{
     if(mode===0){
       catClassRow.classList.remove('hidden');catTagRow.classList.remove('hidden');
-      const r=await apiCall('/v2/api/comic/condition',{});
+      const r=await apiCall('/v2/api/comic/condition',{},'GET');
       const d=r.data||{};
       comicClassesData=(d.class||[]).filter(c=>c.name&&c.id&&c.name!=='全部'&&!c.name.includes('欧美')&&!c.name.includes('同性')&&!nameBlocked(c.name));
       comicTagsData=(d.tags||[]).filter(t=>t.name&&t.id&&t.name!=='全部'&&!t.name.includes('欧美')&&!t.name.includes('同性')&&!nameBlocked(t.name));
@@ -217,21 +226,21 @@ async function reloadCats(){
       const seenT=new Set();comicTagsData=comicTagsData.filter(t=>{if(seenT.has(t.name))return false;seenT.add(t.name);return true;});
       buildChips(catClassChips,comicClassesData,'cid',()=>{comicCid='';});
       buildChips(catTagChips,comicTagsData,'tid',()=>{comicTid='';});
-      const hr=await apiCall('/v2/api/comic/hotSearch',{});
+      const hr=await apiCall('/v2/api/comic/hotSearch',{},'GET');
       const hw=(hr.data&&hr.data.hot_keyword)||[];
       buildHot(hw);
     }else if(mode===1){
       catClassRow.classList.remove('hidden');catChildRow.classList.remove('hidden');
-      const r=await apiCall('/api/app/vodClass',{});
+      const r=await apiCall('/api/app/vodClass',{},'GET');
       const d=r.data||{};
       vodTypesData=(d.type||[]).filter(t=>String(t.id)&&t.name&&t.name!=='全部'&&!['4','73','8'].includes(String(t.id))&&!nameBlocked(t.name));
       buildChips(catClassChips,vodTypesData.map(t=>({id:String(t.id),name:t.name})),'vpid',()=>{vodPid='';vodType='';});
-      const hr=await apiCall('/api/app/hotSearch',{});
+      const hr=await apiCall('/api/app/hotSearch',{},'GET');
       const hd=hr.data||[];
       let hw=[];
       if(Array.isArray(hd))for(const o of hd){const list=o.list||[];for(const k of list){const w=k.vod_name||'';if(w&&!isBlocked(w)&&!hotBad(w)){hw.push(w);if(hw.length>=20)break;}}if(hw.length>=20)break;}
       buildHot(hw);
-    }else{
+    }else if(mode===2){
       catClassRow.classList.remove('hidden');
       const r=await apiCall('/v2/api/forum/index',{id:1});
       const d=r.data||{};
@@ -239,7 +248,20 @@ async function reloadCats(){
       forumBoardsData=child.filter(b=>b.name&&b.name!=='全部'&&!isBlocked(b.name)).map(b=>({id:String(b.id),name:b.name}));
       buildChips(catClassChips,[{id:'0',name:'最新'},...forumBoardsData],'bid',()=>{forumBid='0';});
       try{
-        const hr=await apiCall('/v2/api/forum/hotSearch',{});
+        const hr=await apiCall('/v2/api/forum/hotSearch',{},'GET');
+        const hw=(hr.data&&hr.data.hot_keyword)||[];
+        buildHot(hw);
+      }catch(e){buildHot([]);}
+    }else{
+      catClassRow.classList.remove('hidden');catTagRow.classList.remove('hidden');
+      const r=await apiCall('/v2/api/book/condition',{},'GET');
+      const d=r.data||{};
+      novelClassesData=(d.class||[]).filter(c=>c.name&&c.id&&c.name!=='全部'&&!novelBlocked(c.name));
+      novelTagsData=(d.tags||[]).filter(t=>t.name&&t.id&&t.name!=='全部'&&!novelBlocked(t.name));
+      buildChips(catClassChips,novelClassesData,'ncid',()=>{novelCid='';});
+      buildChips(catTagChips,novelTagsData,'ntid',()=>{novelTid='';});
+      try{
+        const hr=await apiCall('/v2/api/book/hotSearch',{},'GET');
         const hw=(hr.data&&hr.data.hot_keyword)||[];
         buildHot(hw);
       }catch(e){buildHot([]);}
@@ -258,6 +280,8 @@ function buildChips(container,items,key,clearFn){
     if(key==='tid')comicTid='';
     if(key==='vpid'){vodPid='';vodType='';catChildChips.innerHTML='';}
     if(key==='bid')forumBid='';
+    if(key==='ncid')novelCid='';
+    if(key==='ntid')novelTid='';
     doLoad(true);
   });
   container.appendChild(all);
@@ -288,6 +312,8 @@ function buildChips(container,items,key,clearFn){
         }
       }
       if(key==='bid')forumBid=item.id==='0'?'':item.id;
+      if(key==='ncid'){novelCid=item.id;novelTid='';catTagChips.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));catTagChips.firstElementChild.classList.add('active');}
+      if(key==='ntid')novelTid=item.id;
       doLoad(true);
     });
     container.appendChild(chip);
@@ -327,12 +353,12 @@ async function doLoad(reset){
         const r2=await apiCall('/api/app/searchList',{wd:vodKw,page:vodPage});
         raw2=(r2.data||{}).list||[];
       }else{
-        const r2=await apiCall('/api/app/vodList',{type:vodType,type_pid:vodPid,class:'',sort:'rand',page:vodPage});
-        raw2=(r2.data||{}).list||[];
+        const r2=await apiCall('/api/app/vodList',{type:vodType,type_pid:vodPid,class:'',sort:'',page:1+Math.floor(Math.random()*60)});
+        raw2=shuffle((r2.data||{}).list||[]);
       }
       items=raw2.filter(v=>v.vod_name&&!nameBlocked(v.vod_name)&&v.type_id!==4);
       if(raw2.length<10)vodEnd=true;
-    }else{
+    }else if(mode===2){
       if(forumKwMode){
         const r3=await apiCall('/v2/api/forum/searchList',{wd:forumKw,page:forumPage});
         items=parseForumList(r3);
@@ -341,6 +367,17 @@ async function doLoad(reset){
         items=parseForumList(r3);
       }
       if(forumRawCount<10)forumEnd=true;
+    }else{
+      let raw4=[];
+      if(novelKwMode){
+        const r4=await apiCall('/v2/api/book/searchList',{wd:novelKw,page:novelPage});
+        raw4=(r4.data||{}).list||[];
+      }else{
+        const r4=await apiCall('/v2/api/book/list',{page:novelPage,cid:novelCid,tid:novelTid,sort:'rand'});
+        raw4=(r4.data||{}).list||[];
+      }
+      items=raw4.filter(b=>b.name&&!novelBlocked(b.name));
+      if(raw4.length<12)novelEnd=true;
     }
     if(reset)grid.innerHTML='';
     renderItems(items);
@@ -349,7 +386,7 @@ async function doLoad(reset){
     showToast('加载失败: '+e.message);
   }finally{
     loading=false;
-    if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd)){
+    if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd)||(mode===3&&novelEnd)){
       loadMore.textContent='没有更多了';
     }else{
       loadMore.classList.add('hidden');
@@ -381,7 +418,8 @@ function renderItems(items){
   for(const item of items){
     if(mode===0)renderComicCard(item);
     else if(mode===1)renderVodCard(item);
-    else renderForumCard(item);
+    else if(mode===2)renderForumCard(item);
+    else renderNovelCard(item);
   }
 }
 function renderComicCard(c){
@@ -431,13 +469,15 @@ function lazyImg(container,url){
 /* ===== infinite scroll ===== */
 function onInfiniteScroll(){
   if($('mainView').classList.contains('hidden'))return;
+  if(mode===4)return;
   if(loading)return;
-  if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd))return;
+  if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd)||(mode===3&&novelEnd))return;
   const se=document.scrollingElement||document.documentElement;
   if(se.scrollTop+se.clientHeight>=se.scrollHeight-400){
     if(mode===0){comicPage++;doLoad(false);}
     else if(mode===1){vodPage++;doLoad(false);}
-    else{forumPage++;doLoad(false);}
+    else if(mode===2){forumPage++;doLoad(false);}
+    else{novelPage++;doLoad(false);}
   }
 }
 window.addEventListener('scroll',onInfiniteScroll,{passive:true});
@@ -446,6 +486,7 @@ document.addEventListener('scroll',onInfiniteScroll,{passive:true});
 let chaptersCache=[],loadedChapters=[],currentChapterIdx=-1,loadingChapter=false;
 async function openComic(comic){
   currentComic=comic;
+  recordHistory('comic',comic);
   readerTitle.textContent=comic.name;
   readerList.innerHTML='<div class="loadingHint">加载章节...</div>';
   showView('readerView');
@@ -640,7 +681,8 @@ async function getChapterPages(ch){
   let imglist='',domain=d.domain||IMG_CDN,auth=!!(d.data&&d.data.auth);
   if(d.data)imglist=d.data.imglist||'';
   if(!auth&&ch.pay!==0){
-    const br=await apiCall('/v2/api/comic/buy',{id:ch.id});
+    let br=await apiCall('/v2/api/comic/buy',{id:ch.id});
+    if(!(br.code===1&&br.data&&br.data.imglist)){userToken='';await ensureLogin();br=await apiCall('/v2/api/comic/buy',{id:ch.id});}
     if(br.code===1&&br.data&&br.data.imglist){imglist=br.data.imglist;auth=true;}
   }
   let pages=parseImgList(imglist,domain);
@@ -654,6 +696,125 @@ $('readerCatalog').addEventListener('click',()=>{const p=$('chapterPanel');if(p.
 $('chapterPanelClose').addEventListener('click',closeChapterPanel);
 $('readerRotate').addEventListener('click',()=>{readerLandscape=!readerLandscape;$('readerView').classList.toggle('landscape',readerLandscape);$('readerRotate').textContent=readerLandscape?'竖屏':'旋转';});
 $('readerBack').addEventListener('click',()=>{if(readerLandscape){readerLandscape=false;$('readerView').classList.remove('landscape');$('readerRotate').textContent='旋转';}closeChapterPanel();showView('mainView');});
+/* ===== novel ===== */
+function novelBlocked(name){return nameBlocked(name)||hotBad(name);}
+function formatTextNum(n){n=parseInt(n)||0;if(n>=10000)return (n/10000).toFixed(1)+'万';return String(n);}
+function renderNovelCard(b){
+  const div=document.createElement('div');
+  div.className='card';
+  const coverUrl=resolveImgUrl(b.pic);
+  div.innerHTML='<div class="cover"><span>\uD83D\uDCDA</span>'+(b.pay!==0?'<span class="badge">VIP</span>':'')+'</div>'+
+    '<div class="info"><div class="name">'+esc(b.name)+'</div><div class="sub">'+esc(b.author||'无名')+' · '+formatTextNum(b.text_num)+'字</div></div>';
+  div.addEventListener('click',()=>openNovel(b));
+  grid.appendChild(div);
+  if(coverUrl)lazyImg(div.querySelector('.cover'),coverUrl);
+}
+async function openNovel(book){
+  currentNovel=book;
+  recordHistory('novel',book);
+  novelBookName=book.name||'';
+  novelTitle.textContent=book.name;
+  novelBody.innerHTML='<div class="loadingHint">加载章节...</div>';
+  showView('novelView');
+  try{
+    await ensureLogin();
+    const r=await apiCall('/v2/api/book/chapter',{bid:book.id,id:''});
+    const d=r.data||{};
+    novelChapters=(d.chapter||[]).map(c=>({id:c.id,name:c.name,pay:c.pay||0,bullion:c.bullion||0}));
+    renderNovelChapterButtons();
+    if(novelChapters.length>0)loadNovelChapter(0);
+    else novelBody.innerHTML='<div class="loadingHint">无章节</div>';
+  }catch(e){
+    novelBody.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
+  }
+}
+function renderNovelChapterButtons(){
+  const list=$('novelChapterList');
+  list.innerHTML='';
+  for(let i=0;i<novelChapters.length;i++){
+    const ch=novelChapters[i];
+    const btn=document.createElement('button');
+    btn.className='chapterItem';
+    btn.textContent=ch.name+(ch.pay!==0?' \u{1F512}':'');
+    btn.addEventListener('click',()=>{closeNovelChapterPanel();loadNovelChapter(i);});
+    list.appendChild(btn);
+  }
+}
+async function loadNovelChapter(idx){
+  if(idx<0||idx>=novelChapters.length)return;
+  novelChapterIdx=idx;
+  const ch=novelChapters[idx];
+  novelBody.innerHTML='<div class="loadingHint">加载正文...</div>';
+  try{
+    await ensureLogin();
+    let cr=await apiCall('/v2/api/book/chapter',{bid:currentNovel.id,id:ch.id});
+    let d=cr.data||{};
+    let data=d.data||{};
+    if(data&&!data.auth&&ch.pay!==0){
+      const br=await apiCall('/v2/api/book/buy',{id:ch.id});
+      if(br&&br.data){data=br.data.data||br.data||data;if(data.path)data.auth=true;}
+    }
+    const path=(data&&data.path)||'';
+    if(!path){novelBody.innerHTML='<div class="loadingHint">该章节无内容</div>';return;}
+    const txt=await fetchText(path);
+    const paras=parseNovelText(txt);
+    if(!paras.length){novelBody.innerHTML='<div class="loadingHint">正文解析失败</div>';return;}
+    renderNovelBody(ch,paras);
+  }catch(e){
+    novelBody.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
+  }
+}
+async function fetchText(url){
+  const resp=await fetch(url);
+  if(!resp.ok)throw new Error('HTTP '+resp.status);
+  return await resp.text();
+}
+function parseNovelText(html){
+  const decode=t=>t.replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').replace(/&ldquo;/g,'\u201C').replace(/&rdquo;/g,'\u201D').replace(/&hellip;/g,'\u2026').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').trim();
+  const out=[];
+  let m,re;
+  re=/<div[^>]*class=['"]transcode-is-sb['"][^>]*>([\s\S]*?)<\/div>/g;
+  while((m=re.exec(html))!==null){const t=decode(m[1]);if(t)out.push(t);}
+  if(out.length)return out;
+  re=/<p[^>]*>([\s\S]*?)<\/p>/g;
+  while((m=re.exec(html))!==null){const t=decode(m[1]);if(t)out.push(t);}
+  if(out.length)return out;
+  const plain=html.replace(/<br[^>]*>/gi,'\n').replace(/<[^>]*>/g,'');
+  const lines=plain.split(/\n+/).map(decode).filter(t=>t);
+  if(lines.length)return lines;
+  const single=decode(html);
+  return single?[single]:[];
+}
+function renderNovelBody(ch,paras){
+  const wrap=document.createElement('div');
+  const title=document.createElement('div');title.className='novelChapterTitle';title.textContent=ch.name;
+  const book=document.createElement('div');book.className='novelBookTitle';book.textContent=novelBookName;
+  wrap.appendChild(title);wrap.appendChild(book);
+  wrap.appendChild(novelNavBar());
+  for(const p of paras){
+    const pe=document.createElement('p');pe.textContent=p;wrap.appendChild(pe);
+  }
+  wrap.appendChild(novelNavBar());
+  novelBody.innerHTML='';
+  novelBody.appendChild(wrap);
+  novelTitle.textContent=ch.name;
+  novelBody.scrollTop=0;
+}
+function novelNavBar(){
+  const nav=document.createElement('div');nav.className='novelNav';
+  const prev=document.createElement('button');prev.textContent='上一章';prev.disabled=novelChapterIdx<=0;
+  prev.addEventListener('click',()=>{if(novelChapterIdx>0)loadNovelChapter(novelChapterIdx-1);});
+  const next=document.createElement('button');next.textContent='下一章';next.disabled=novelChapterIdx>=novelChapters.length-1;
+  next.addEventListener('click',()=>{if(novelChapterIdx<novelChapters.length-1)loadNovelChapter(novelChapterIdx+1);});
+  nav.appendChild(prev);nav.appendChild(next);
+  return nav;
+}
+function closeNovelChapterPanel(){$('novelChapterPanel').classList.add('hidden');}
+function openNovelChapterPanel(){$('novelChapterPanel').classList.remove('hidden');}
+$('novelBack').addEventListener('click',()=>{closeNovelChapterPanel();showView('mainView');});
+$('novelCatalog').addEventListener('click',()=>{const p=$('novelChapterPanel');if(p.classList.contains('hidden'))openNovelChapterPanel();else closeNovelChapterPanel();});
+$('novelChapterPanelClose').addEventListener('click',closeNovelChapterPanel);
+
 /* ===== video player ===== */
 let hlsLoaded=false;
 async function ensureHls(){
@@ -667,6 +828,7 @@ async function ensureHls(){
   });
 }
 async function openVod(v){
+  recordHistory('vod',v);
   playerTitle.textContent=v.vod_name;
   playerStatus.textContent='获取播放地址...';
   videoEl.src='';
@@ -752,11 +914,63 @@ async function openForum(f){
 $('forumBack').addEventListener('click',()=>showView('mainView'));
 /* ===== view switching ===== */
 function showView(id){
-  ['mainView','readerView','playerView','forumView'].forEach(v=>{
+  ['mainView','readerView','playerView','forumView','novelView'].forEach(v=>{
     $(v).classList.toggle('hidden',v!==id);
   });
   if(id==='mainView')window.scrollTo(0,0);
 }
+/* ===== history ===== */
+const HIST_KEY='kj_history_v1';
+function getHistory(){try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch(e){return [];}}
+function saveHistory(list){try{localStorage.setItem(HIST_KEY,JSON.stringify(list));}catch(e){}}
+function recordHistory(type,item){
+  if(!item)return;
+  const id=item.id||item.vod_id;
+  if(!id)return;
+  let list=getHistory();
+  list=list.filter(e=>!(e.type===type&&e.id===id));
+  let rec={type,id,ts:Date.now()};
+  if(type==='comic')rec.item={id:item.id,name:item.name,pic:item.pic,pay:item.pay,latest_chapter_name:item.latest_chapter_name};
+  else if(type==='vod')rec.item={vod_id:item.vod_id,vod_name:item.vod_name,vod_pic:item.vod_pic,vod_duration:item.vod_duration,vod_mode:item.vod_mode,type_id:item.type_id};
+  else rec.item={id:item.id,name:item.name,pic:item.pic,author:item.author,text_num:item.text_num,pay:item.pay,latest_chapter_name:item.latest_chapter_name};
+  list.unshift(rec);
+  if(list.length>100)list=list.slice(0,100);
+  saveHistory(list);
+}
+function renderHistory(){
+  grid.innerHTML='';
+  const list=getHistory();
+  if(list.length===0){
+    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--text2);padding:48px 0;">暂无观看记录</div>';
+    return;
+  }
+  const clear=document.createElement('button');
+  clear.className='chip';
+  clear.style.cssText='grid-column:1/-1;justify-self:start;color:var(--text2);';
+  clear.textContent='清空历史';
+  clear.addEventListener('click',()=>{saveHistory([]);renderHistory();});
+  grid.appendChild(clear);
+  const labels={comic:'漫画',vod:'视频',novel:'小说'};
+  for(const e of list){
+    const it=e.item||{};
+    const name=e.type==='vod'?it.vod_name:it.name;
+    const pic=e.type==='vod'?it.vod_pic:it.pic;
+    const sub=e.type==='vod'?(it.vod_duration?('时长 '+it.vod_duration):''):(it.latest_chapter_name?('更新至 '+it.latest_chapter_name):'');
+    const div=document.createElement('div');
+    div.className='card';
+    const coverUrl=resolveImgUrl(pic);
+    div.innerHTML='<div class="cover"><span>'+labels[e.type]+'</span></div>'+
+      '<div class="info"><div class="name">'+esc(name||'')+'</div><div class="sub">'+esc(sub)+'</div></div>';
+    div.addEventListener('click',()=>{
+      if(e.type==='comic')openComic(it);
+      else if(e.type==='vod')openVod(it);
+      else openNovel(it);
+    });
+    grid.appendChild(div);
+    if(coverUrl)lazyImg(div.querySelector('.cover'),coverUrl);
+  }
+}
+
 /* ===== init ===== */
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});

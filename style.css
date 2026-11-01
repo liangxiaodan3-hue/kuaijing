@@ -101,3 +101,22 @@ input { border:none; outline:none; background:var(--surface2); color:var(--text)
 
 /* ===== responsive ===== */
 @media (min-width:600px) { #grid { grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); } }
+
+/* ===== novel ===== */
+#novelView { position:fixed; inset:0; z-index:200; background:var(--bg); display:flex; flex-direction:column; }
+#novelHeader { display:flex; align-items:center; padding:calc(env(safe-area-inset-top) + 8px) 12px 8px; background:var(--surface); border-bottom:1px solid var(--border); gap:10px; }
+#novelBack { font-size:20px; padding:4px 8px; }
+#novelTitle { flex:1; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#novelCatalog { font-size:13px; padding:6px 12px; background:var(--surface2); border-radius:14px; color:var(--text); white-space:nowrap; }
+#novelBody { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:18px 16px 48px; }
+.novelChapterTitle { font-size:17px; font-weight:600; text-align:center; margin:4px 0 6px; color:var(--text); }
+.novelBookTitle { font-size:13px; text-align:center; color:var(--text2); margin-bottom:14px; }
+#novelBody p { font-size:17px; line-height:1.95; margin-bottom:18px; text-indent:2em; color:var(--text); word-break:break-all; }
+.novelNav { display:flex; gap:10px; margin:18px 0 4px; }
+.novelNav button { flex:1; padding:11px; background:var(--surface2); border-radius:10px; font-size:14px; color:var(--text); border:1px solid var(--border); }
+.novelNav button:disabled { opacity:.4; }
+#novelBody .loadingHint { text-align:center; padding:30px; color:var(--text2); font-size:13px; }
+#novelChapterPanel { position:fixed; right:0; top:0; bottom:0; width:80%; max-width:330px; z-index:320; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; box-shadow:-8px 0 30px rgba(0,0,0,.5); }
+#novelChapterPanelHeader { display:flex; align-items:center; justify-content:space-between; padding:calc(env(safe-area-inset-top) + 12px) 16px 12px; border-bottom:1px solid var(--border); font-size:15px; font-weight:600; }
+#novelChapterPanelClose { font-size:22px; padding:0 4px; line-height:1; color:var(--text2); }
+#novelChapterList { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:6px; }
