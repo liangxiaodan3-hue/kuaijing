@@ -1,6 +1,6 @@
-const CACHE = 'kuaixing-v11';
+const CACHE = 'kuaixing-v12';
 const KEEP = ['kj-comic-pages-v1'];
-const SHELL = ['index.html','style.css','app.js','manifest.json','icons/icon-192.png','icons/icon-512.png','icons/apple-touch-icon.png'];
+const SHELL = ['index.html','style.css','app.js','manifest.json','icons/icon-192.png','icons/icon-512.png','icons/apple-touch-icon.png','index/v91_index.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });

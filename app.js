@@ -1380,6 +1380,18 @@ let extCatsTried=false;
 let extRemote=null;
 let extSeq=0;
 let extKwRemote=null;
+let EXT_INDEX=null;
+let EXT_INDEX_P=null;
+const EXT_LOCAL_PAGE=20;
+function loadExtIndex(){
+  if(EXT_INDEX)return Promise.resolve(EXT_INDEX);
+  if(EXT_INDEX_P)return EXT_INDEX_P;
+  EXT_INDEX_P=fetch('index/v91_index.json',{cache:'no-cache'}).then(r=>r.json()).then(d=>{
+    EXT_INDEX=(d&&d.cats)?d.cats:{};
+    return EXT_INDEX;
+  }).catch(()=>{EXT_INDEX=null;EXT_INDEX_P=null;return null;});
+  return EXT_INDEX_P;
+}
 function extTheme(){
   return extSection===0?'drama':extSection===1?'video':'novel';
 }
@@ -1500,6 +1512,18 @@ function renderExtRemoteBody(){
   if(st.more)renderExtMoreTail();
   else renderExtEndTail();
 }
+async function extLocalStart(cat){
+  const seq=++extSeq;
+  $('extStatus').classList.add('hidden');
+  $('extBody').classList.remove('hidden');
+  $('extBody').innerHTML=emptyHint('\u6b63\u5728\u52a0\u8f7d\u300c'+cat+'\u300d...');
+  const cats=await loadExtIndex();
+  if(seq!==extSeq)return;
+  const items=(cats&&cats[cat])||[];
+  if(!items.length){extRemoteStart('cat',cat);return;}
+  extRemote={mode:'cat',key:cat,local:true,all:items,page:1,videos:items.slice(0,EXT_LOCAL_PAGE),more:items.length>EXT_LOCAL_PAGE,busy:false,failed:''};
+  renderExtRemoteBody();
+}
 async function extRemoteStart(mode,key){
   const seq=++extSeq;
   const st={mode:mode,key:key,page:0,videos:[],more:true,busy:false,failed:''};
@@ -1512,6 +1536,20 @@ async function extRemoteStart(mode,key){
 async function extRemoteNext(seq){
   const st=extRemote;
   if(seq!==extSeq||!st||st.busy)return;
+  if(st.local){
+    st.busy=true;
+    const from=st.page*EXT_LOCAL_PAGE;
+    const got=st.all.slice(from,from+EXT_LOCAL_PAGE);
+    st.videos=st.videos.concat(got);
+    st.page++;
+    st.more=st.page*EXT_LOCAL_PAGE<st.all.length;
+    st.busy=false;
+    const tail=document.getElementById('extMoreTail');
+    if(tail)tail.remove();
+    for(const v of got)renderExtVideoCard(v);
+    if(st.more)renderExtMoreTail();else renderExtEndTail();
+    return;
+  }
   st.busy=true;
   const qs=st.mode==='cat'?'cat='+encodeURIComponent(st.key):'kw='+encodeURIComponent(st.key);
   let ac=null;
@@ -1556,7 +1594,7 @@ async function extRemoteNext(seq){
     if(seq===extSeq)st.busy=false;
   }
 }
-const KJ_BUILD='v11';
+const KJ_BUILD='v12';
 console.log('KJ build '+KJ_BUILD);
 function renderExternal(){
   const body=$('extBody');
@@ -1567,7 +1605,7 @@ function renderExternal(){
   renderExtHot();
   if(extSection===1&&extIsContentCat(extCat)){
     if(extRemote&&extRemote.mode==='cat'&&extRemote.key===extCat)renderExtRemoteBody();
-    else extRemoteStart('cat',extCat);
+    else extLocalStart(extCat);
     return;
   }
   if(extSection===1&&extKwRemote){
