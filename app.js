@@ -1286,21 +1286,32 @@ function extStatusShow(msg,retry){
   if(retry)$('extRetry').addEventListener('click',loadExternal);
 }
 function extStatusHide(){$('extStatus').classList.add('hidden');}
+let _extReq=null;
 async function loadExternal(){
-  extStatusShow('正在检查网络(需翻墙)...');
+  if(_extReq){try{_extReq.abort();}catch(e){}}
+  const ac=(typeof AbortController!=='undefined')?new AbortController():null;
+  _extReq=ac;
+  extStatusShow('正在检查网络(需翻墙)...', true);
   $('extBody').innerHTML='';
+  const timer=setTimeout(function(){try{ac&&ac.abort();}catch(e){}}, 9000);
   try{
-    const resp=await fetch(RELAY_BASE+'/list');
+    const resp=await fetch(RELAY_BASE+'/list', ac?{signal:ac.signal,cache:'no-store'}:{cache:'no-store'});
+    if(_extReq!==ac)return;
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     const d=await resp.json();
+    if(_extReq!==ac)return;
     if(d.error)throw new Error(d.error);
     extData={dramas:d.dramas||[],videos:d.videos||[],novels:d.novels||[]};
     extLoaded=true;
     extStatusHide();
     renderExternal();
   }catch(e){
+    if(_extReq!==ac)return;
     extLoaded=false;extData=null;
     extStatusShow('未检测到翻墙网络。请先开 VPN/代理，然后点「检查网络」。', true);
+  }finally{
+    clearTimeout(timer);
+    if(_extReq===ac)_extReq=null;
   }
 }
 function emptyHint(msg){return '<div class="loadingHint" style="grid-column:1/-1">'+esc(msg)+'</div>';}
