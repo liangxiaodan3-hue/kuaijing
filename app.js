@@ -1383,16 +1383,19 @@ let extKwRemote=null;
 function extTheme(){
   return extSection===0?'drama':extSection===1?'video':'novel';
 }
+const EXT_CONTENT_CATS=['吃瓜爆料','熟女做爱','成人动漫','童颜巨乳','少妇换妻','内射中出','会所按摩','91探花','丝袜美腿','极品少妇','三级片','无码专区','国产自拍','制服诱惑','偷拍偷录'];
 function extIsContentCat(label){
-  return !!(label&&extCatsData&&extCatsData.some(c=>c.label===label));
+  if(!label)return false;
+  if(extCatsData&&extCatsData.some(c=>c.label===label))return true;
+  return EXT_CONTENT_CATS.indexOf(label)>=0;
 }
 function loadExtCats(){
   if(extCatsTried)return;
   extCatsTried=true;
   fetch(RELAY_BASE+'/cats',{cache:'no-store'}).then(r=>r.json()).then(d=>{
-    extCatsData=(d&&d.cats)||[];
+    extCatsData=(d&&d.cats&&d.cats.length)?d.cats:EXT_CONTENT_CATS.map(l=>({label:l}));
     if(extSection===1&&!extCat&&!extKwRemote)renderExtCats();
-  }).catch(()=>{extCatsTried=false;});
+  }).catch(()=>{extCatsData=EXT_CONTENT_CATS.map(l=>({label:l}));extCatsTried=false;});
 }
 function extPickCat(c){
   extCat=c;
@@ -1418,7 +1421,8 @@ function renderExtCats(){
   const labels=[];
   if(extSection===1){
     loadExtCats();
-    for(const c of (extCatsData||[]))labels.push(c.label);
+    const csrc=(extCatsData&&extCatsData.length)?extCatsData:EXT_CONTENT_CATS.map(l=>({label:l}));
+    for(const c of csrc)labels.push(c.label);
     for(const c of extSortCats()){if(labels.indexOf(c)<0)labels.push(c);}
   }else if(extData){
     const list=extSection===0?extData.dramas:extData.novels;
@@ -1562,6 +1566,7 @@ function renderExternal(){
   if(extSection===0)list=extData.dramas;
   else if(extSection===1)list=extData.videos;
   else list=extData.novels;
+  if(extSection===1&&!extCat)list=list.filter(x=>!extIsContentCat(x.cat));
   if(extCat)list=list.filter(x=>x.cat===extCat);
   if(extKw)list=list.filter(x=>x.name.toLowerCase().includes(extKw));
   if(list.length===0){body.innerHTML=emptyHint(extSection===0?'\u6682\u65e0\u77ed\u5267':extSection===1?'\u6682\u65e0\u89c6\u9891':'\u6682\u65e0\u5c0f\u8bf4');return;}
