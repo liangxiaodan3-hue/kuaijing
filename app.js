@@ -1476,13 +1476,24 @@ function renderExtEndTail(){
   d.id='extMoreEnd';d.className='extMoreEnd';d.textContent='\u6ca1\u6709\u66f4\u591a\u4e86';
   $('extBody').appendChild(d);
 }
+function extEmptyRetry(msg,onTap){
+  const d=document.createElement('div');
+  d.className='loadingHint';
+  d.style.gridColumn='1/-1';
+  d.style.cursor='pointer';
+  d.textContent=msg;
+  d.addEventListener('click',onTap);
+  return d;
+}
 function renderExtRemoteBody(){
   const st=extRemote;
   if(!st)return;
   const body=$('extBody');
   body.innerHTML='';
   if(!st.videos.length){
-    body.innerHTML=emptyHint(st.busy?'\u52a0\u8f7d\u4e2d...':'\u6682\u65e0\u89c6\u9891');
+    if(st.busy){body.innerHTML=emptyHint('\u6b63\u5728\u68c0\u7d22\u300c'+st.key+'\u300d...');return;}
+    const msg=st.failed?('\u52a0\u8f7d\u5931\u8d25\uff1a'+st.failed+' \u00b7 \u70b9\u6b64\u91cd\u8bd5'):('\u300c'+st.key+'\u300d\u6682\u65e0\u89c6\u9891 \u00b7 \u70b9\u6b64\u91cd\u8bd5');
+    body.appendChild(extEmptyRetry(msg,()=>{if(st.busy)return;extRemoteStart(st.mode,st.key);}));
     return;
   }
   for(const v of st.videos)renderExtVideoCard(v);
@@ -1491,7 +1502,7 @@ function renderExtRemoteBody(){
 }
 async function extRemoteStart(mode,key){
   const seq=++extSeq;
-  const st={mode:mode,key:key,page:0,videos:[],more:true,busy:false};
+  const st={mode:mode,key:key,page:0,videos:[],more:true,busy:false,failed:''};
   extRemote=st;
   $('extStatus').classList.add('hidden');
   $('extBody').classList.remove('hidden');
@@ -1534,7 +1545,9 @@ async function extRemoteNext(seq){
   }catch(e){
     if(seq!==extSeq)return;
     if(st.page===0){
-      $('extBody').innerHTML=emptyHint('\u641c\u7d22\u5931\u8d25: '+e.message);
+      st.failed=String(e&&e.message||e);
+      st.busy=false;
+      renderExtRemoteBody();
     }else{
       const tail=document.getElementById('extMoreTail');
       if(tail)tail.textContent='\u52a0\u8f7d\u5931\u8d25\uff0c\u70b9\u6b64\u91cd\u8bd5';
@@ -1543,6 +1556,8 @@ async function extRemoteNext(seq){
     if(seq===extSeq)st.busy=false;
   }
 }
+const KJ_BUILD='v11';
+console.log('KJ build '+KJ_BUILD);
 function renderExternal(){
   const body=$('extBody');
   $('extStatus').classList.add('hidden');
@@ -1550,7 +1565,6 @@ function renderExternal(){
   $('externalView').setAttribute('data-theme',extTheme());
   renderExtCats();
   renderExtHot();
-  if(!extData){body.innerHTML='';return;}
   if(extSection===1&&extIsContentCat(extCat)){
     if(extRemote&&extRemote.mode==='cat'&&extRemote.key===extCat)renderExtRemoteBody();
     else extRemoteStart('cat',extCat);
@@ -1561,6 +1575,7 @@ function renderExternal(){
     else extRemoteStart('kw',extKwRemote);
     return;
   }
+  if(!extData){body.innerHTML=emptyHint('\u6b63\u5728\u52a0\u8f7d...');return;}
   body.innerHTML='';
   let list;
   if(extSection===0)list=extData.dramas;
