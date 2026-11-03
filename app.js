@@ -1282,10 +1282,14 @@ function openExternal(){
 function extStatusShow(msg,retry){
   const st=$('extStatus');
   st.classList.remove('hidden');
+  $('extBody').classList.add('hidden');
   st.innerHTML='<div class="extStatusTxt">'+esc(msg)+'</div>'+(retry?'<button class="chip" id="extRetry">检查网络</button>':'');
   if(retry)$('extRetry').addEventListener('click',loadExternal);
 }
-function extStatusHide(){$('extStatus').classList.add('hidden');}
+function extStatusHide(){
+  $('extStatus').classList.add('hidden');
+  $('extBody').classList.remove('hidden');
+}
 let _extReq=null;
 async function loadExternal(){
   if(_extReq){try{_extReq.abort();}catch(e){}}
@@ -1396,6 +1400,8 @@ function renderExtHot(){
 }
 function renderExternal(){
   const body=$('extBody');
+  $('extStatus').classList.add('hidden');
+  body.classList.remove('hidden');
   $('externalView').setAttribute('data-theme',extTheme());
   renderExtCats();
   renderExtHot();
@@ -1441,6 +1447,7 @@ function renderExtNovelCard(n){
   $('extBody').appendChild(div);
 }
 async function openExtDrama(d){
+  extStatusHide();
   $('extTitle').textContent=d.name;
   $('extBody').innerHTML='<div class="loadingHint">加载剧集...</div>';
   try{
@@ -1469,6 +1476,7 @@ function renderExtEpisodes(d,detail){
   body.appendChild(grid);
 }
 async function playExtDrama(id,ep,title,episodes){
+  extStatusHide();
   const eps=(episodes&&episodes.length)?episodes.slice():[ep];
   let idx=eps.indexOf(ep);
   if(idx<0){eps.push(ep);idx=eps.length-1;}
@@ -1482,6 +1490,7 @@ async function playExtDrama(id,ep,title,episodes){
   }catch(e){extPlaying=null;$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtVideo(v){
+  extStatusHide();
   extPlaying=null;
   $('extTitle').textContent=v.name;
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
@@ -1493,6 +1502,7 @@ async function openExtVideo(v){
   }catch(e){$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtNovel(n){
+  extStatusHide();
   $('extTitle').textContent=n.name;
   $('extBody').innerHTML='<div class="loadingHint">加载正文...</div>';
   try{

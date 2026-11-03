@@ -132,9 +132,10 @@ input { border:none; outline:none; background:var(--surface2); color:var(--text)
 .extSeg.active { background:var(--accent); color:#fff; }
 #extSearchRow { padding:8px 12px; }
 #extSearchInput { width:100%; height:34px; border-radius:17px; padding:0 14px; }
-#extStatus { flex:1; min-height:0; margin:8px 12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow-y:auto; }
-.extStatusTxt { color:var(--text2); font-size:13px; line-height:1.6; word-break:break-all; }
-#extStatus .chip { display:inline-block; margin-top:14px; background:var(--accent); color:#fff; padding:10px 30px; border-radius:18px; font-size:15px; font-weight:600; cursor:pointer; border:none; box-shadow:0 2px 8px rgba(0,0,0,.28); }
+#extStatus { flex:1 1 auto; min-height:0; margin:8px 12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 16px 22px; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+#extStatus.hidden { display:none !important; }
+.extStatusTxt { color:var(--text2); font-size:13px; line-height:1.7; word-break:break-all; max-width:100%; }
+#extStatus .chip { flex:0 0 auto; display:inline-block; margin-top:0; background:var(--accent); color:#fff; padding:10px 30px; border-radius:18px; font-size:15px; font-weight:600; cursor:pointer; border:none; box-shadow:0 2px 8px rgba(0,0,0,.28); }
 #extBody { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; padding:10px 12px 80px; align-content:start; }
 .extDetailHead { grid-column:1/-1; display:flex; align-items:center; gap:10px; margin-bottom:4px; }
 .extDetailHead .chip { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
