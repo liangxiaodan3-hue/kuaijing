@@ -1282,12 +1282,12 @@ function openExternal(){
 function extStatusShow(msg,retry){
   const st=$('extStatus');
   st.classList.remove('hidden');
-  st.innerHTML='<div class="extStatusTxt">'+esc(msg)+'</div>'+(retry?'<button class="chip" id="extRetry">重试</button>':'');
+  st.innerHTML='<div class="extStatusTxt">'+esc(msg)+'</div>'+(retry?'<button class="chip" id="extRetry">检查网络</button>':'');
   if(retry)$('extRetry').addEventListener('click',loadExternal);
 }
 function extStatusHide(){$('extStatus').classList.add('hidden');}
 async function loadExternal(){
-  extStatusShow('检测网络中(需翻墙)...');
+  extStatusShow('正在检查网络(需翻墙)...');
   $('extBody').innerHTML='';
   try{
     const resp=await fetch(RELAY_BASE+'/list');
@@ -1300,7 +1300,7 @@ async function loadExternal(){
     renderExternal();
   }catch(e){
     extLoaded=false;extData=null;
-    extStatusShow('未检测到翻墙网络。请先开 VPN/代理，然后点「重试」。', true);
+    extStatusShow('未检测到翻墙网络。请先开 VPN/代理，然后点「检查网络」。', true);
   }
 }
 function emptyHint(msg){return '<div class="loadingHint" style="grid-column:1/-1">'+esc(msg)+'</div>';}
