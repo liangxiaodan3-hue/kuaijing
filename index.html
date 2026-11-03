@@ -47,6 +47,7 @@
     <div id="readerHeader">
       <button id="readerBack">←</button>
       <span id="readerTitle"></span>
+      <span id="readerBadge"></span>
       <button id="readerRotate">旋转</button>
       <button id="readerCatalog">目录</button>
     </div>
@@ -67,6 +68,15 @@
     <div id="playerBody">
       <video id="videoEl" controls playsinline webkit-playsinline preload="metadata"></video>
       <div id="playerStatus"></div>
+      <div id="playerNav" class="hidden">
+        <button id="plPrev" class="plNavBtn">‹ 上一集</button>
+        <button id="plList" class="plNavBtn plListBtn">选集</button>
+        <button id="plNext" class="plNavBtn">下一集 ›</button>
+      </div>
+      <div id="playerEpPanel" class="hidden">
+        <div id="playerEpHead"><span id="playerEpTitle">选集</span><button id="playerEpClose">×</button></div>
+        <div id="playerEpList"></div>
+      </div>
     </div>
   </div>
   <div id="forumView" class="hidden">
@@ -112,6 +122,6 @@
   </div>
   <div id="toast" class="hidden"></div>
 </div>
-<script src="app.js?v=2"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

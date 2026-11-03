@@ -107,26 +107,57 @@ async function ensureLogin(){
   }catch(e){}
 }
 const imgCache=new Map();
-async function loadXorImage(url){
-  if(imgCache.has(url))return imgCache.get(url);
-  let lastErr=null;
+const imgBusy=new Map();
+const IMG_MEM_MAX=400;
+function imgMemPut(url,objUrl){
+  imgCache.set(url,objUrl);
+  if(imgCache.size>IMG_MEM_MAX){
+    const first=imgCache.keys().next().value;
+    const old=imgCache.get(first);
+    imgCache.delete(first);
+    try{URL.revokeObjectURL(old);}catch(e){}
+  }
+}
+async function kpFetchImage(url,signal,forceNet,store){
+  const c=await kpOpen();
+  if(c&&!forceNet){
+    try{const hit=await c.match(url);if(hit)return hit;}catch(e){}
+  }
+  let resp=null,lastErr=null;
   for(let attempt=0;attempt<3;attempt++){
+    if(signal&&signal.aborted)throw new DOMException('aborted','AbortError');
     try{
-      const resp=await fetch(url,{cache:'force-cache'});
+      resp=await fetch(url,{cache:'force-cache',signal:signal||undefined});
       if(!resp.ok)throw new Error('HTTP '+resp.status);
-      const buf=await resp.arrayBuffer();
-      const arr=new Uint8Array(buf);
-      for(let i=0;i<arr.length;i++)arr[i]^=0x88;
-      const blob=new Blob([arr],{type:'image/jpeg'});
-      const objUrl=URL.createObjectURL(blob);
-      imgCache.set(url,objUrl);
-      return objUrl;
+      break;
     }catch(e){
-      lastErr=e;
+      lastErr=e;resp=null;
+      if(e&&e.name==='AbortError')throw e;
       await new Promise(r=>setTimeout(r,400*(attempt+1)));
     }
   }
-  throw lastErr;
+  if(!resp)throw lastErr||new Error('image fetch failed');
+  if(c&&store){try{await c.put(url,resp.clone());}catch(e){}}
+  return resp;
+}
+async function loadXorImage(url,opts){
+  opts=opts||{};
+  if(!opts.forceNet&&imgCache.has(url))return imgCache.get(url);
+  const busy=imgBusy.get(url);
+  if(busy&&!opts.forceNet)return busy;
+  const p=(async()=>{
+    const resp=await kpFetchImage(url,opts.signal,opts.forceNet,opts.store===true);
+    const buf=await resp.arrayBuffer();
+    const arr=new Uint8Array(buf);
+    for(let i=0;i<arr.length;i++)arr[i]^=0x88;
+    const blob=new Blob([arr],{type:'image/jpeg'});
+    const objUrl=URL.createObjectURL(blob);
+    imgMemPut(url,objUrl);
+    return objUrl;
+  })();
+  imgBusy.set(url,p);
+  try{return await p;}
+  finally{if(imgBusy.get(url)===p)imgBusy.delete(url);}
 }
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function resolveImgUrl(pic){
@@ -162,6 +193,7 @@ let currentNovel=null,novelChapters=[],novelChapterIdx=-1,novelBookName='';
 const RELAY_BASE='https://kuaijing.liangxiaodan3.workers.dev';
 let extSection=0,extKw='',extLoaded=false,extData=null;
 let playerReturn='mainView';
+let extPlaying=null; // {id,name,episodes:[],idx} 短剧播放上下文
 const $=id=>document.getElementById(id);
 const grid=$('grid'),loadMore=$('loadMore'),searchInput=$('searchInput');
 const catPanel=$('catPanel'),hotChips=$('hotChips'),catClassChips=$('catClassChips'),catTagChips=$('catTagChips'),catChildChips=$('catChildChips');
@@ -489,7 +521,9 @@ window.addEventListener('scroll',onInfiniteScroll,{passive:true});
 document.addEventListener('scroll',onInfiniteScroll,{passive:true});
 /* ===== comic reader ===== */
 let chaptersCache=[],loadedChapters=[],currentChapterIdx=-1,loadingChapter=false;
+let pendingRestore=0,restoreTries=0,restoringPos=false,posTimer=0;
 async function openComic(comic){
+  kpStop();
   currentComic=comic;
   recordHistory('comic',comic);
   readerTitle.textContent=comic.name;
@@ -500,8 +534,15 @@ async function openComic(comic){
     const r=await apiCall('/v2/api/comic/chapter',{mid:comic.id,id:''});
     const d=r.data||{};
     chaptersCache=(d.chapter||[]).map(c=>({id:c.id,name:c.name,pay:c.pay||0,bullion:c.bullion||0}));
+    await kpIndex();
     renderChapterButtons();
-    if(chaptersCache.length>0)loadChapterPages(chaptersCache[0].id,chaptersCache[0].name,chaptersCache[0].pay);
+    if(chaptersCache.length>0){
+      const pos=posOf(comic.id);
+      let target=chaptersCache[0];
+      if(pos&&pos.cid){const f=chaptersCache.find(c=>String(c.id)===String(pos.cid));if(f)target=f;}
+      pendingRestore=(pos&&String(pos.cid)===String(target.id))?(pos.page||0):0;
+      loadChapterPages(target.id,target.name,target.pay);
+    }
     else readerList.innerHTML='<div class="loadingHint">无章节</div>';
   }catch(e){
     readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
@@ -510,22 +551,42 @@ async function openComic(comic){
 function renderChapterButtons(){
   const list=$('chapterList');
   list.innerHTML='';
+  const cid=currentComic&&currentComic.id;
   for(const ch of chaptersCache){
     const btn=document.createElement('button');
     btn.className='chapterItem';
+    btn.dataset.cid=ch.id;
     btn.textContent=ch.name+(ch.pay!==0?' \u{1F512}':'');
-    btn.addEventListener('click',()=>{closeChapterPanel();loadChapterPages(ch.id,ch.name,ch.pay);});
+    const mk=document.createElement('span');
+    mk.className='kpMark';
+    btn.appendChild(mk);
+    btn.addEventListener('click',()=>{pendingRestore=0;closeChapterPanel();loadChapterPages(ch.id,ch.name,ch.pay);});
     list.appendChild(btn);
+  }
+  refreshChapterMarks();
+}
+async function refreshChapterMarks(){
+  const cid=currentComic&&currentComic.id;
+  if(cid==null)return;
+  const m=await kpIndex();
+  const btns=document.querySelectorAll('#chapterList .chapterItem');
+  for(let i=0;i<btns.length;i++){
+    const btn=btns[i];
+    const mk=btn.querySelector('.kpMark');
+    if(!mk)continue;
+    mk.textContent=m.has(String(cid)+'|'+String(btn.dataset.cid))?' \u2B07':'';
   }
 }
 async function loadChapterPages(cid,cname,pay){
   if(loadingChapter)return;
   loadingChapter=true;
+  kpStop();
   readerList.innerHTML='<div class="loadingHint">加载中...</div>';
   loadedChapters=[];
   currentChapterIdx=chaptersCache.findIndex(c=>c.id===cid);
   try{
-    const pages=await getChapterPages({id:cid,name:cname,pay:pay});
+    const hit=await kpChapter(currentComic&&currentComic.id,cid);
+    const pages=(hit&&hit.urls&&hit.urls.length)?hit.urls.slice():await getChapterPages({id:cid,name:cname,pay:pay});
     if(pages.length===0){readerList.innerHTML='<div class="loadingHint">该章节无图片数据</div>';loadingChapter=false;return;}
     const chapterDiv=document.createElement('div');
     chapterDiv.innerHTML='<div class="chapterDivider">'+esc(cname)+'</div>';
@@ -537,14 +598,17 @@ async function loadChapterPages(cid,cname,pay){
       const img=document.createElement('img');
       img.alt='';
       container.appendChild(img);
-      loadXorImage(url).then(src=>{
-        img.src=src;loaded++;
+      setImg(img,url,()=>{
+        loaded++;
         readerTitle.textContent=cname+' ('+loaded+'/'+pages.length+')';
-      }).catch(()=>{loaded++;});
+      });
     }
-    loadedChapters.push({id:cid,name:cname,pay,element:chapterDiv});
+    loadedChapters.push({id:cid,name:cname,pay,element:chapterDiv,total:pages.length});
     readerTitle.textContent=cname;
     setupReaderScroll();
+    if(pendingRestore>0){const rp=pendingRestore;pendingRestore=0;restoreScrollTo(container,rp);}
+    kpSchedule();
+    saveReaderPos();
   }catch(e){
     readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
   }finally{loadingChapter=false;}
@@ -561,7 +625,7 @@ function parseImgList(imglist,cdn){
   }
   return out;
 }
-async function enumeratePages(firstPath,cdn){
+async function enumeratePages(firstPath,cdn,signal){
   let base=cdn||IMG_CDN;
   if(!base.endsWith('/'))base+='/';
   let dir='';
@@ -574,9 +638,10 @@ async function enumeratePages(firstPath,cdn){
   const results=[];
   let scanStart=1,keep=true;
   while(keep&&scanStart<=maxPage){
+    if(signal&&signal.aborted)throw new DOMException('aborted','AbortError');
     const lo=scanStart,hi=Math.min(maxPage,scanStart+batch-1);
     const probes=[];
-    for(let n=lo;n<=hi;n++)probes.push(probePage(dir,n));
+    for(let n=lo;n<=hi;n++)probes.push(probePage(dir,n,signal));
     const settled=await Promise.allSettled(probes);
     let found=0;
     for(let i=0;i<settled.length;i++){
@@ -586,15 +651,17 @@ async function enumeratePages(firstPath,cdn){
     scanStart+=batch;
     if(hi>=maxPage)keep=false;
   }
+  if(signal&&signal.aborted)throw new DOMException('aborted','AbortError');
   if(results.length===0)return firstPath?[firstPath]:[];
   results.sort((a,b)=>a.n-b.n);
   return results.map(r=>r.url);
 }
-async function probePage(dir,n){
+async function probePage(dir,n,signal){
   for(const suffix of ['_c_xfile.jpg','_xfile.jpg']){
+    if(signal&&signal.aborted)return null;
     const url=dir+n+suffix;
     try{
-      const resp=await fetch(url,{headers:{'Range':'bytes=0-3'}});
+      const resp=await fetch(url,{headers:{'Range':'bytes=0-3'},signal:signal||undefined});
       if(resp.status===200||resp.status===206){
         const buf=await resp.arrayBuffer();
         const arr=new Uint8Array(buf);
@@ -606,6 +673,7 @@ async function probePage(dir,n){
 }
 function setupReaderScroll(){
   readerList.onscroll=()=>{
+    if(restoringPos){return;}
     if(loadingChapter)return;
     if(readerList.scrollTop+readerList.clientHeight>=readerList.scrollHeight-200){
       const next=chaptersCache[currentChapterIdx+1];
@@ -615,6 +683,7 @@ function setupReaderScroll(){
       const prev=chaptersCache[currentChapterIdx-1];
       if(prev&&!loadedChapters.find(c=>c.id===prev.id))prependPrevChapter(prev);
     }
+    saveReaderPos();
   };
 }
 async function appendNextChapter(ch){
@@ -625,7 +694,8 @@ async function appendNextChapter(ch){
   readerList.appendChild(hint);
   currentChapterIdx++;
   try{
-    const pages=await getChapterPages(ch);
+    const hit=await kpChapter(currentComic&&currentComic.id,ch.id);
+    const pages=(hit&&hit.urls&&hit.urls.length)?hit.urls.slice():await getChapterPages(ch);
     hint.remove();
     if(pages.length===0){loadingChapter=false;return;}
     const chapterDiv=document.createElement('div');
@@ -636,10 +706,11 @@ async function appendNextChapter(ch){
     for(const url of pages){
       const img=document.createElement('img');img.alt='';
       container.appendChild(img);
-      loadXorImage(url).then(src=>{img.src=src;}).catch(()=>{});
+      setImg(img,url);
     }
-    loadedChapters.push({id:ch.id,name:ch.name,pay:ch.pay,element:chapterDiv});
+    loadedChapters.push({id:ch.id,name:ch.name,pay:ch.pay,element:chapterDiv,total:pages.length});
     readerTitle.textContent=ch.name;
+    kpSchedule();
   }catch(e){hint.textContent='加载失败';}
   loadingChapter=false;
 }
@@ -651,7 +722,8 @@ async function prependPrevChapter(ch){
   readerList.prepend(hint);
   currentChapterIdx--;
   try{
-    const pages=await getChapterPages(ch);
+    const hit=await kpChapter(currentComic&&currentComic.id,ch.id);
+    const pages=(hit&&hit.urls&&hit.urls.length)?hit.urls.slice():await getChapterPages(ch);
     hint.remove();
     if(pages.length===0){loadingChapter=false;return;}
     const oldH=readerList.scrollHeight;
@@ -663,7 +735,7 @@ async function prependPrevChapter(ch){
     for(const url of pages){
       const img=document.createElement('img');img.alt='';
       container.appendChild(img);imgs.push(img);
-      loadXorImage(url).then(src=>{img.src=src;}).catch(()=>{});
+      setImg(img,url);
     }
     readerList.prepend(chapterDiv);
     loadedChapters.unshift({id:ch.id,name:ch.name,pay:ch.pay,element:chapterDiv});
@@ -676,12 +748,15 @@ async function prependPrevChapter(ch){
       });
     });
     readerTitle.textContent=ch.name;
+    kpSchedule();
   }catch(e){hint.textContent='加载失败';}
   loadingChapter=false;
 }
-async function getChapterPages(ch){
+async function getChapterPages(ch,opts){
+  opts=opts||{};
   await ensureLogin();
-  const r=await apiCall('/v2/api/comic/chapter',{mid:currentComic.id,id:ch.id});
+  const mid=opts.comicId||(currentComic&&currentComic.id);
+  const r=await apiCall('/v2/api/comic/chapter',{mid:mid,id:ch.id});
   const d=r.data||{};
   let imglist='',domain=d.domain||IMG_CDN,auth=!!(d.data&&d.data.auth);
   if(d.data)imglist=d.data.imglist||'';
@@ -691,7 +766,7 @@ async function getChapterPages(ch){
     if(br.code===1&&br.data&&br.data.imglist){imglist=br.data.imglist;auth=true;}
   }
   let pages=parseImgList(imglist,domain);
-  if(pages.length<=1&&!auth)pages=await enumeratePages(pages[0]||imglist,domain);
+  if(pages.length<=1&&!auth&&!opts.noEnumerate)pages=await enumeratePages(pages[0]||imglist,domain,opts.signal);
   return pages;
 }
 let readerLandscape=false;
@@ -701,6 +776,164 @@ $('readerCatalog').addEventListener('click',()=>{const p=$('chapterPanel');if(p.
 $('chapterPanelClose').addEventListener('click',closeChapterPanel);
 $('readerRotate').addEventListener('click',()=>{readerLandscape=!readerLandscape;$('readerView').classList.toggle('landscape',readerLandscape);$('readerRotate').textContent=readerLandscape?'竖屏':'旋转';});
 $('readerBack').addEventListener('click',()=>{if(readerLandscape){readerLandscape=false;$('readerView').classList.remove('landscape');$('readerRotate').textContent='旋转';}closeChapterPanel();showView('mainView');});
+/* ===== comic page cache (persist) + preload ===== */
+const KP_CACHE='kj-comic-pages-v1';
+const KP_IDX_URL='https://kuaijing.local/kj-comic-index-v1';
+const KP_AHEAD=5;
+const KP_MAX=60;
+let kpCacheP=null,kpIdxP=null,kpIdx=null;
+let kpAbort=null,kpTimer=null,kpDone=0,kpTotal=0;
+function kpOpen(){
+  if(!kpCacheP){
+    kpCacheP=(typeof caches!=='undefined'&&caches.open)?caches.open(KP_CACHE).catch(()=>null):Promise.resolve(null);
+  }
+  return kpCacheP;
+}
+async function kpIndex(){
+  if(kpIdx)return kpIdx;
+  if(kpIdxP)return kpIdxP;
+  kpIdxP=(async()=>{
+    let list=[];
+    try{
+      const c=await kpOpen();
+      if(c){const r=await c.match(KP_IDX_URL);if(r)list=(await r.json()).chapters||[];}
+    }catch(e){}
+    const m=new Map();
+    for(const e of list){
+      if(e&&e.c!=null&&e.id!=null&&e.urls&&e.urls.length)m.set(String(e.c)+'|'+String(e.id),e);
+    }
+    kpIdx=m;
+    return m;
+  })();
+  return kpIdxP;
+}
+async function kpChapter(comicId,chapterId){
+  if(comicId==null||chapterId==null)return null;
+  const m=await kpIndex();
+  return m.get(String(comicId)+'|'+String(chapterId))||null;
+}
+async function kpSaveIndex(){
+  const c=await kpOpen();
+  if(!c||!kpIdx)return;
+  const arr=[...kpIdx.values()].sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+  const keep=arr.slice(0,KP_MAX),drop=arr.slice(KP_MAX);
+  for(const e of drop){
+    kpIdx.delete(String(e.c)+'|'+String(e.id));
+    for(const u of (e.urls||[])){
+      try{await c.delete(u);}catch(_){}
+      try{const o=imgCache.get(u);if(o)URL.revokeObjectURL(o);imgCache.delete(u);}catch(_){}
+    }
+  }
+  try{
+    await c.put(KP_IDX_URL,new Response(JSON.stringify({v:1,ts:Date.now(),chapters:keep}),{headers:{'Content-Type':'application/json'}}));
+  }catch(e){}
+  return keep;
+}
+async function kpPutChapter(entry){
+  const m=await kpIndex();
+  m.set(String(entry.c)+'|'+String(entry.id),entry);
+  await kpSaveIndex();
+  refreshChapterMarks();
+}
+function kpBadge(txt){
+  const el=document.getElementById('readerBadge');
+  if(!el)return;
+  el.textContent=txt||'';
+  el.classList.toggle('on',!!txt);
+}
+function setImg(img,url,onDone){
+  loadXorImage(url,{store:true}).then(src=>{img.src=src;if(onDone)onDone(true);})
+    .catch(()=>loadXorImage(url,{store:true,forceNet:true})
+      .then(src=>{img.src=src;if(onDone)onDone(true);})
+      .catch(()=>{if(onDone)onDone(false);}));
+}
+function kpStop(){
+  if(kpTimer){clearTimeout(kpTimer);kpTimer=null;}
+  if(kpAbort){try{kpAbort.abort();}catch(e){}kpAbort=null;}
+  kpBadge('');
+  kpDone=0;kpTotal=0;
+}
+function kpSchedule(){
+  kpStop();
+  if(!currentComic||!chaptersCache.length)return;
+  if(!chaptersCache[currentChapterIdx])return;
+  const cid=currentComic.id,idx=currentChapterIdx;
+  kpTimer=setTimeout(()=>{kpTimer=null;kpRun(cid,idx);},1200);
+}
+async function kpFetchChapterImages(urls,signal){
+  const ok=new Array(urls.length).fill(null);
+  let i=0;
+  const worker=async()=>{
+    while(true){
+      const k=i++;
+      if(k>=urls.length)return;
+      if(signal.aborted)return;
+      try{await loadXorImage(urls[k],{signal:signal,store:true});ok[k]=urls[k];}
+      catch(e){if(signal.aborted)return;}
+    }
+  };
+  const ws=[];
+  const n=Math.min(4,urls.length);
+  for(let j=0;j<n;j++)ws.push(worker());
+  await Promise.all(ws);
+  return ok.filter(Boolean);
+}
+async function kpRun(comicId,startIdx){
+  if(!currentComic||currentComic.id!==comicId)return;
+  const ctrl=new AbortController();
+  kpAbort=ctrl;
+  const sig=ctrl.signal;
+  let planned=0;
+  for(let k=1;k<=KP_AHEAD;k++){
+    const ch=chaptersCache[startIdx+k];
+    if(!ch)break;
+    const had=await kpChapter(comicId,ch.id);
+    if(had&&had.urls&&had.urls.length)continue;
+    planned++;
+  }
+  kpTotal=planned;kpDone=0;
+  if(planned===0){kpBadge('');if(kpAbort===ctrl)kpAbort=null;return;}
+  kpBadge('预载 0/'+planned);
+  try{
+    for(let k=1;k<=KP_AHEAD;k++){
+      const ch=chaptersCache[startIdx+k];
+      if(!ch)break;
+      if(sig.aborted)return;
+      if(!currentComic||currentComic.id!==comicId)return;
+      const have=await kpChapter(comicId,ch.id);
+      if(have&&have.urls&&have.urls.length)continue;
+      let pages=null;
+      try{
+        pages=await getChapterPages({id:ch.id,name:ch.name,pay:ch.pay||0},{noEnumerate:true,comicId:comicId,signal:sig});
+      }catch(e){
+        if(sig.aborted)return;
+        continue;
+      }
+      if(sig.aborted)return;
+      if(!pages||pages.length<2)continue;
+      const ok=await kpFetchChapterImages(pages,sig);
+      if(sig.aborted)return;
+      if(!ok.length)continue;
+      await kpPutChapter({c:comicId,id:ch.id,name:ch.name,pay:ch.pay||0,urls:ok,savedAt:Date.now()});
+      kpDone++;
+      kpBadge('预载 '+kpDone+'/'+planned);
+    }
+    if(!sig.aborted)kpBadge(kpDone>0?('已缓存 '+kpDone):'');
+  }finally{
+    if(kpAbort===ctrl){
+      kpAbort=null;
+      if(kpDone>0&&!sig.aborted)setTimeout(()=>{if(!kpAbort)kpBadge('');},3000);
+    }
+  }
+}
+function kpWarmIndex(){(async()=>{try{await kpIndex();}catch(e){}})();}
+document.addEventListener('visibilitychange',()=>{
+  const rv=document.getElementById('readerView');
+  if(document.hidden){kpStop();}
+  else if(rv&&!rv.classList.contains('hidden')){kpSchedule();}
+});
+kpWarmIndex();
+
 /* ===== novel ===== */
 function novelBlocked(name){return nameBlocked(name)||hotBad(name);}
 function formatTextNum(n){n=parseInt(n)||0;if(n>=10000)return (n/10000).toFixed(1)+'万';return String(n);}
@@ -861,7 +1094,18 @@ async function openVod(v){
       await ensureHls();
       if(window.Hls&&window.Hls.isSupported()){
         if(videoEl._hls)videoEl._hls.destroy();
-        const hls=new window.Hls({maxBufferLength:30,maxMaxBufferLength:60});
+        const hls=new window.Hls({
+          startLevel:-1,
+          maxBufferLength:120,
+          maxMaxBufferLength:300,
+          maxBufferSize:256*1024*1024,
+          manifestLoadingTimeOut:20000,
+          fragLoadingTimeOut:60000,
+          fragLoadingMaxRetry:8,
+          fragLoadingRetryDelay:300,
+          enableWorker:true,
+          abrEwmaDefaultEstimate:1200000
+        });
         hls.loadSource(m3u8);
         hls.attachMedia(videoEl);
         hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{videoEl.play().catch(()=>{});});
@@ -874,6 +1118,8 @@ async function openVod(v){
   }catch(e){playerStatus.textContent='播放失败: '+e.message;}
 }
 $('playerBack').addEventListener('click',()=>{
+  $('playerEpPanel').classList.add('hidden');
+  plSetNavVisible(false);
   if(videoEl._hls){videoEl._hls.destroy();videoEl._hls=null;}
   videoEl.pause();videoEl.src='';
   showView(playerReturn);
@@ -921,10 +1167,58 @@ async function openForum(f){
 $('forumBack').addEventListener('click',()=>showView('mainView'));
 /* ===== view switching ===== */
 function showView(id){
+  if(id!=='readerView')doSaveReaderPos(true);
   ['mainView','readerView','playerView','forumView','novelView','externalView'].forEach(v=>{
     $(v).classList.toggle('hidden',v!==id);
   });
+  if(id!=='readerView')kpStop();
   if(id==='mainView')window.scrollTo(0,0);
+}
+/* ===== reading position ===== */
+const POS_KEY='kj_pos_v1';
+function getPosMap(){try{return JSON.parse(localStorage.getItem(POS_KEY)||'{}');}catch(e){return {};}}
+function posOf(mid){if(mid==null)return null;return getPosMap()[String(mid)]||null;}
+function setPos(mid,obj){try{const m=getPosMap();m[String(mid)]=obj;localStorage.setItem(POS_KEY,JSON.stringify(m));}catch(e){}}
+function saveReaderPos(){
+  if(posTimer)return;
+  posTimer=setTimeout(()=>{posTimer=0;doSaveReaderPos(false);},700);
+}
+function doSaveReaderPos(force){
+  if(!currentComic||!loadedChapters.length||!readerList)return;
+  if(readerList.classList.contains('hidden'))return;
+  const rect=readerList.getBoundingClientRect();
+  if(rect.width===0||rect.height===0)return;
+  let cur=loadedChapters[0];
+  for(const c of loadedChapters){if(c.element.getBoundingClientRect().top-rect.top<=120)cur=c;}
+  const imgs=cur.element.querySelectorAll('img');
+  let painted=0;
+  for(let i=0;i<imgs.length;i++){if(imgs[i].naturalWidth>0)painted++;}
+  if(!force&&painted<(cur.total||imgs.length)&&(cur.tries||0)<3){
+    cur.tries=(cur.tries||0)+1;
+    setTimeout(()=>{cur.tries=0;doSaveReaderPos(false);},900);
+    return;
+  }
+  let page=0;
+  for(let i=0;i<imgs.length;i++){if(imgs[i].getBoundingClientRect().top-rect.top<=120)page=i;else break;}
+  setPos(currentComic.id,{cid:cur.id,name:cur.name,page:page,ts:Date.now()});
+}
+function restoreScrollTo(container,page){
+  restoringPos=true;restoreTries=0;let stable=0,last=-1;
+  const tick=()=>{
+    const imgs=container.querySelectorAll('img');
+    const target=imgs[Math.min(page,imgs.length-1)];
+    if(target){
+      const rl=readerList.getBoundingClientRect();
+      const off=target.getBoundingClientRect().top-rl.top+readerList.scrollTop-6;
+      const want=Math.max(0,off);
+      if(Math.abs(want-readerList.scrollTop)>4) readerList.scrollTop=want;
+      stable=(Math.abs(off-last)<3)?stable+1:0;
+      last=off;
+    }
+    restoreTries++;
+    if(restoreTries<24&&stable<2) setTimeout(tick,350); else {restoringPos=false;saveReaderPos();}
+  };
+  tick();
 }
 /* ===== history ===== */
 const HIST_KEY='kj_history_v1';
@@ -962,7 +1256,8 @@ function renderHistory(){
     const it=e.item||{};
     const name=e.type==='vod'?it.vod_name:it.name;
     const pic=e.type==='vod'?it.vod_pic:it.pic;
-    const sub=e.type==='vod'?(it.vod_duration?('时长 '+it.vod_duration):''):(it.latest_chapter_name?('更新至 '+it.latest_chapter_name):'');
+    let sub=e.type==='vod'?(it.vod_duration?('时长 '+it.vod_duration):''):(it.latest_chapter_name?('更新至 '+it.latest_chapter_name):'');
+    if(e.type==='comic'){const p=posOf(it.id);if(p&&p.name)sub='读到 '+p.name+(it.latest_chapter_name?' · 更新至 '+it.latest_chapter_name:'');}
     const div=document.createElement('div');
     div.className='card';
     const coverUrl=resolveImgUrl(pic);
@@ -1157,21 +1452,26 @@ function renderExtEpisodes(d,detail){
   for(const ep of detail.episodes){
     const b=document.createElement('button');
     b.className='extEp';b.textContent='第'+ep+'集';
-    b.addEventListener('click',()=>playExtDrama(d.id,ep,detail.name||d.name));
+    b.addEventListener('click',()=>playExtDrama(d.id,ep,detail.name||d.name,detail.episodes));
     grid.appendChild(b);
   }
   body.appendChild(grid);
 }
-async function playExtDrama(id,ep,title){
+async function playExtDrama(id,ep,title,episodes){
+  const eps=(episodes&&episodes.length)?episodes.slice():[ep];
+  let idx=eps.indexOf(ep);
+  if(idx<0){eps.push(ep);idx=eps.length-1;}
+  extPlaying={id:id,name:title,episodes:eps,idx:idx};
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
   try{
     const r=await fetch(RELAY_BASE+'/resolve?type=51dbe&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep));
     const j=await r.json();
     if(j.error||!j.m3u8)throw new Error(j.error||'解析失败');
     openExtPlay(j.m3u8, title+' 第'+ep+'集');
-  }catch(e){$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
+  }catch(e){extPlaying=null;$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtVideo(v){
+  extPlaying=null;
   $('extTitle').textContent=v.name;
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
   try{
@@ -1206,15 +1506,70 @@ function renderExtNovel(n,data){
   else for(const p of paras){const pe=document.createElement('p');pe.textContent=p;wrap.appendChild(pe);}
   body.appendChild(wrap);
 }
-async function openExtPlay(hlsUrl,title){
-  playerReturn='externalView';
-  playerTitle.textContent=title;
-  playerStatus.textContent='获取播放地址...';
-  videoEl.src='';
-  showView('playerView');
+/* ===== 播放器 · 短剧选集 / 上一集 / 下一集 ===== */
+function plNavLock(on){
+  ['plPrev','plList','plNext'].forEach(id=>{const b=$(id);if(!b)return;b.disabled=on;b.style.opacity=on?'0.35':'';});
+}
+function plSetNavVisible(v){
+  const nav=$('playerNav');if(!nav)return;
+  nav.classList.toggle('hidden',!v);
+  if(!v)$('playerEpPanel').classList.add('hidden');
+}
+function plUpdateNav(){
+  if(!extPlaying)return;
+  const eps=extPlaying.episodes,i=extPlaying.idx,n=eps.length;
+  const prev=$('plPrev'),next=$('plNext'),list=$('plList'),head=$('playerEpTitle');
+  if(!prev||!next||!list)return;
+  const atHead=i<=0,atTail=i>=n-1;
+  prev.disabled=atHead;prev.style.opacity=atHead?'0.35':'';
+  next.disabled=atTail;next.style.opacity=atTail?'0.35':'';
+  list.textContent='选集 '+eps[i]+'/'+n;
+  if(head)head.textContent=extPlaying.name+' · 共 '+n+' 集';
+}
+function plBuildList(){
+  const box=$('playerEpList');if(!box||!extPlaying)return;
+  box.innerHTML='';
+  extPlaying.episodes.forEach((ep,i)=>{
+    const b=document.createElement('button');
+    b.className='plEp'+(i===extPlaying.idx?' active':'');
+    b.textContent='第'+ep+'集';
+    b.addEventListener('click',()=>{
+      $('playerEpPanel').classList.add('hidden');
+      if(i!==extPlaying.idx)plSwitch(i);
+    });
+    box.appendChild(b);
+  });
+  const cur=box.querySelector('.plEp.active');
+  if(cur)setTimeout(()=>{try{cur.scrollIntoView({block:'center'});}catch(e){}},40);
+}
+async function plSwitch(i){
+  if(!extPlaying)return;
+  const eps=extPlaying.episodes;
+  if(i<0||i>=eps.length)return;
+  plNavLock(true);
+  playerStatus.textContent='正在解析第 '+eps[i]+' 集...';
+  try{
+    const r=await fetch(RELAY_BASE+'/resolve?type=51dbe&id='+encodeURIComponent(extPlaying.id)+'&ep='+encodeURIComponent(eps[i]));
+    const j=await r.json();
+    if(j.error||!j.m3u8)throw new Error(j.error||'解析失败');
+    extPlaying.idx=i;
+    playerTitle.textContent=extPlaying.name+' 第'+eps[i]+'集';
+    plUpdateNav();plBuildList();
+    await plPlay(j.m3u8);
+  }catch(e){
+    playerStatus.textContent='第 '+eps[i]+' 集播放失败: '+e.message;
+  }finally{
+    plNavLock(false);plUpdateNav();
+  }
+}
+async function plPlay(hlsUrl){
   try{
     if(!hlsUrl)throw new Error('解析失败');
     playerStatus.textContent='';
+    if(videoEl._hls){try{videoEl._hls.destroy();}catch(e){}videoEl._hls=null;}
+    videoEl.pause();
+    videoEl.removeAttribute('src');
+    try{videoEl.load();}catch(e){}
     const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.userAgent.indexOf('Mac')>=0&&navigator.maxTouchPoints>1);
     const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl')||videoEl.canPlayType('application/x-mpegURL')||isApple;
     if(canNative){
@@ -1224,8 +1579,18 @@ async function openExtPlay(hlsUrl,title){
     }
     await ensureHls();
     if(window.Hls&&window.Hls.isSupported()){
-      if(videoEl._hls)videoEl._hls.destroy();
-      const hls=new window.Hls({maxBufferLength:30,maxMaxBufferLength:60});
+      const hls=new window.Hls({
+        startLevel:-1,
+        maxBufferLength:120,
+        maxMaxBufferLength:300,
+        maxBufferSize:256*1024*1024,
+        manifestLoadingTimeOut:20000,
+        fragLoadingTimeOut:60000,
+        fragLoadingMaxRetry:8,
+        fragLoadingRetryDelay:300,
+        enableWorker:true,
+        abrEwmaDefaultEstimate:1200000
+      });
       hls.loadSource(hlsUrl);
       hls.attachMedia(videoEl);
       hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{videoEl.play().catch(()=>{});});
@@ -1238,6 +1603,15 @@ async function openExtPlay(hlsUrl,title){
     }
   }catch(e){playerStatus.textContent='播放失败: '+e.message;}
 }
+async function openExtPlay(hlsUrl,title){
+  playerReturn='externalView';
+  playerTitle.textContent=title;
+  playerStatus.textContent='获取播放地址...';
+  showView('playerView');
+  plSetNavVisible(!!extPlaying);
+  if(extPlaying){plUpdateNav();plBuildList();$('playerEpPanel').classList.add('hidden');}
+  await plPlay(hlsUrl);
+}
 document.querySelectorAll('.extSeg').forEach(b=>{
   b.addEventListener('click',()=>{
     extSection=parseInt(b.dataset.seg);
@@ -1248,6 +1622,14 @@ document.querySelectorAll('.extSeg').forEach(b=>{
 $('extBack').addEventListener('click',()=>showView('mainView'));
 $('extSearchInput').addEventListener('input',()=>{extKw=$('extSearchInput').value.trim().toLowerCase();renderExternal();});
 
+
+$('plPrev').addEventListener('click',()=>{if(extPlaying)plSwitch(extPlaying.idx-1);});
+$('plNext').addEventListener('click',()=>{if(extPlaying)plSwitch(extPlaying.idx+1);});
+$('plList').addEventListener('click',()=>{if(!extPlaying)return;plBuildList();$('playerEpPanel').classList.toggle('hidden');});
+$('playerEpClose').addEventListener('click',()=>$('playerEpPanel').classList.add('hidden'));
+videoEl.addEventListener('ended',()=>{
+  if(extPlaying&&extPlaying.idx<extPlaying.episodes.length-1)plSwitch(extPlaying.idx+1);
+});
 
 /* ===== init ===== */
 if('serviceWorker' in navigator){
