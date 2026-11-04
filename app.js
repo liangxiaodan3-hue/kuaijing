@@ -2610,7 +2610,8 @@ async function plPlay(hlsUrl){
     videoEl.removeAttribute('src');
     try{videoEl.load();}catch(e){}
     const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.userAgent.indexOf('Mac')>=0&&navigator.maxTouchPoints>1);
-    const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl')||videoEl.canPlayType('application/x-mpegURL')||isApple;
+    // Chrome/Edge 对 apple.mpegurl 会返回 "maybe" 但实际放不了 HLS, 只信 Safari/iOS
+    const canNative=isApple;
     if(canNative){
       // iOS/Safari 原生 HLS 只认 .m3u8 后缀, worker 侧有同名别名路由
       let nsrc=hlsUrl;
