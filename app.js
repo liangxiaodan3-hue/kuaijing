@@ -633,6 +633,8 @@ function renderAcgCard(it){
 }
 function openAcgComic(it){
   kpStop();
+  acgPreStop();
+  acgRevoke();
   currentComic=null;
   currentTg=null;
   currentAcg=it;
@@ -644,61 +646,363 @@ function openAcgComic(it){
   setupReaderScroll();
   loadAcgPages(it);
 }
+/* ---- acg page cache / preload ---- */
+const ACG_CACHE='kj-acg-pages-v1';
+const ACG_META_KEY='https://kuaijing.local/kj-acg-meta-v1';
+const ACG_KEEP_PAGES=360;
+let acgMetaMap=null,acgMetaP=null,acgMetaSaveT=0;
+let acgSeg='h',acgId='',acgName='',acgUrls=[],acgObjs=[];
+let acgPreAbort=null,acgPreTimer=null,acgPreBusy=false;
+
+function acgProxy(u){return RELAY_BASE+'/acg/img?u='+encodeURIComponent(u);}
+function acgCacheOpen(){try{return (typeof caches!=='undefined'&&caches.open)?caches.open(ACG_CACHE):Promise.resolve(null);}catch(e){return Promise.resolve(null);}}
+function acgPageKey(seg,id,p){return 'https://kuaijing.local/kj-acg/'+seg+'/'+id+'/p'+p;}
+async function acgMetaLoad(){
+  if(acgMetaMap)return acgMetaMap;
+  if(acgMetaP)return acgMetaP;
+  acgMetaP=(async()=>{
+    const m=new Map();
+    try{
+      const c=await acgCacheOpen();
+      if(c){const r=await c.match(ACG_META_KEY);if(r){const j=await r.json();for(const e of (j.entries||[]))if(e&&e.k)m.set(e.k,e);}}
+    }catch(e){}
+    acgMetaMap=m;return m;
+  })();
+  return acgMetaP;
+}
+async function acgMetaSaveNow(){
+  const m=await acgMetaLoad();
+  const c=await acgCacheOpen();if(!c)return;
+  const arr=[...m.values()].sort((x,y)=>(y.t||0)-(x.t||0));
+  let total=0;const keep=[];
+  for(const e of arr){
+    const n=(e.p||[]).length;
+    if(total+n>ACG_KEEP_PAGES){
+      for(const pg of (e.p||[])){try{await c.delete(acgPageKey(e.s,e.i,pg));}catch(_){}}
+      m.delete(e.k);continue;
+    }
+    total+=n;keep.push(e);
+  }
+  try{await c.put(ACG_META_KEY,new Response(JSON.stringify({v:1,entries:keep}),{headers:{'Content-Type':'application/json'}}));}catch(_){}
+}
+function acgMetaSaveSoon(){
+  if(acgMetaSaveT)return;
+  acgMetaSaveT=setTimeout(()=>{acgMetaSaveT=0;acgMetaSaveNow().catch(()=>{});},1500);
+}
+async function acgMetaGet(seg,id){const m=await acgMetaLoad();return m.get(seg+'/'+id)||null;}
+async function acgMetaTouch(seg,id,name,urls){
+  const m=await acgMetaLoad();
+  const k=seg+'/'+id;
+  let e=m.get(k);
+  if(!e){e={k:k,s:seg,i:id,name:name||'',urls:(urls||[]).slice(),p:[],t:Date.now()};m.set(k,e);}
+  else{
+    if(name)e.name=name;
+    if(urls&&urls.length)e.urls=urls.slice();
+    e.t=Date.now();
+  }
+  acgMetaSaveSoon();
+  return e;
+}
+async function acgCachedUrl(seg,id,p){
+  const c=await acgCacheOpen();if(!c)return '';
+  try{
+    const r=await c.match(acgPageKey(seg,id,p));
+    if(!r)return '';
+    const bl=await r.blob();
+    if(!bl||bl.size<512)return '';
+    const ou=URL.createObjectURL(bl);
+    acgObjs.push(ou);
+    return ou;
+  }catch(e){return '';}
+}
+async function acgStorePage(seg,id,p,url,signal){
+  if(!url)return false;
+  const c=await acgCacheOpen();if(!c)return false;
+  try{
+    const r=await fetch(acgProxy(url),{signal:signal||undefined,cache:'no-store'});
+    if(!r.ok)return false;
+    const bl=await r.blob();
+    if(!bl||bl.size<1024)return false;
+    await c.put(acgPageKey(seg,id,p),new Response(bl,{headers:{'Content-Type':bl.type||'image/webp'}}));
+    const e=await acgMetaTouch(seg,id,acgName,acgUrls);
+    if(!e.p)e.p=[];
+    if(e.p.indexOf(p)<0)e.p.push(p);
+    return true;
+  }catch(err){return false;}
+}
+function acgRevoke(){
+  for(const u of acgObjs){try{URL.revokeObjectURL(u);}catch(e){}}
+  acgObjs=[];
+}
+function acgPreStop(){
+  if(acgPreTimer){clearTimeout(acgPreTimer);acgPreTimer=null;}
+  if(acgPreAbort){try{acgPreAbort.abort();}catch(e){}acgPreAbort=null;}
+  acgPreBusy=false;
+}
+function acgUpdateTitle(){
+  const n=acgUrls.length;
+  readerTitle.textContent=(acgName||'')+(n?(' ('+n+'页)'):'');
+}
+async function acgPaintImg(img,idx){
+  const p=idx+1,seg=acgSeg,id=acgId,url=acgUrls[idx];
+  const hit=await acgCachedUrl(seg,id,p);
+  if(hit){img.src=hit;img.dataset.cached='1';return;}
+  if(!url)return;
+  img.onerror=()=>{if(img.dataset.px)return;img.dataset.px='1';img.src=acgProxy(url);};
+  img.src=url;
+}
+function acgAppendUrls(list){
+  if(!list||!list.length)return;
+  const base=acgUrls.length;
+  acgUrls=acgUrls.concat(list);
+  for(let i=0;i<list.length;i++){
+    const idx=base+i;
+    const img=document.createElement('img');
+    img.alt='';img.className='acgPage';img.referrerPolicy='no-referrer';
+    img.loading=idx<3?'eager':'lazy';
+    img.decoding='async';
+    readerList.appendChild(img);
+    acgPaintImg(img,idx);
+  }
+  acgUpdateTitle();
+}
+function acgRender(urls){
+  readerList.innerHTML='';
+  acgUrls=[];
+  acgAppendUrls(urls||[]);
+}
+function acgBuildCatalog(){
+  const list=$('chapterList');if(!list)return;
+  list.className='acgPages';
+  list.innerHTML='';
+  const n=acgUrls.length;
+  for(let i=0;i<n;i++){
+    const btn=document.createElement('button');
+    btn.className='chapterItem';btn.textContent=String(i+1);
+    btn.addEventListener('click',()=>{
+      closeChapterPanel();
+      const el=readerList.children[i];
+      if(el)el.scrollIntoView({block:'start'});
+      else readerList.scrollTop=readerList.scrollHeight;
+    });
+    list.appendChild(btn);
+  }
+  const hd=document.querySelector('#chapterPanelHeader span');
+  if(hd)hd.textContent='页面 '+n;
+}
+function acgCurrentIndex(){
+  const rect=readerList.getBoundingClientRect();
+  const imgs=readerList.querySelectorAll('img');
+  let page=0;
+  for(let i=0;i<imgs.length;i++){if(imgs[i].getBoundingClientRect().top-rect.top<=rect.height*0.75)page=i;else break;}
+  return page;
+}
+function acgSchedulePreload(){
+  if(!currentAcg||acgPreBusy)return;
+  if(acgPreTimer)clearTimeout(acgPreTimer);
+  acgPreTimer=setTimeout(()=>{acgPreTimer=null;acgPreloadAhead();},900);
+}
+async function acgPreloadAhead(){
+  if(!currentAcg||acgPreBusy||!acgUrls.length)return;
+  const seg=acgSeg,id=acgId;
+  const start=acgCurrentIndex();
+  const end=Math.min(acgUrls.length-1,start+7);
+  const c=await acgCacheOpen();
+  const todo=[];
+  for(let i=start;i<=end;i++){
+    const pg=i+1;let has=false;
+    try{has=!!(c&&await c.match(acgPageKey(seg,id,pg)));}catch(e){}
+    if(!has)todo.push({p:pg,url:acgUrls[i]});
+  }
+  if(!todo.length)return;
+  acgPreBusy=true;
+  const ctrl=new AbortController();acgPreAbort=ctrl;
+  let done=0;
+  try{
+    for(const t of todo){
+      if(ctrl.signal.aborted)break;
+      if(!currentAcg||acgId!==id)break;
+      const ok=await acgStorePage(seg,id,t.p,t.url,ctrl.signal);
+      if(ok)done++;
+      if(done)kpBadge('缓存 '+done+'/'+todo.length);
+    }
+  }finally{
+    if(acgPreAbort===ctrl)acgPreAbort=null;
+    acgPreBusy=false;
+    if(!ctrl.signal.aborted&&done)setTimeout(()=>{if(!acgPreBusy)kpBadge('');},2200);
+    else if(!done)kpBadge('');
+  }
+}
+async function acgCacheAll(){
+  if(!currentAcg||acgPreBusy||!acgUrls.length)return;
+  const seg=acgSeg,id=acgId;
+  const c=await acgCacheOpen();
+  const todo=[];
+  for(let i=0;i<acgUrls.length;i++){
+    const pg=i+1;let has=false;
+    try{has=!!(c&&await c.match(acgPageKey(seg,id,pg)));}catch(e){}
+    if(!has)todo.push({p:pg,url:acgUrls[i]});
+  }
+  if(!todo.length){kpBadge('已全部缓存');setTimeout(()=>{if(!acgPreBusy)kpBadge('');},1800);return;}
+  acgPreBusy=true;
+  const ctrl=new AbortController();acgPreAbort=ctrl;
+  let done=0;
+  try{
+    for(let k=0;k<todo.length;k+=4){
+      if(ctrl.signal.aborted)break;
+      if(!currentAcg||acgId!==id)break;
+      const batch=todo.slice(k,k+4);
+      await Promise.all(batch.map(async t=>{
+        const ok=await acgStorePage(seg,id,t.p,t.url,ctrl.signal);
+        if(ok)done++;
+      }));
+      if(ctrl.signal.aborted)break;
+      kpBadge('缓存 '+done+'/'+todo.length);
+    }
+    if(!ctrl.signal.aborted)kpBadge('已缓存 '+done);
+  }finally{
+    if(acgPreAbort===ctrl)acgPreAbort=null;
+    acgPreBusy=false;
+    setTimeout(()=>{if(!acgPreBusy)kpBadge('');},2500);
+  }
+}
+(function(){
+  const b=document.getElementById('readerCache');
+  if(b)b.addEventListener('click',()=>{acgCacheAll();});
+})();
+async function acgFetchPageUrls(u,need,out,onTick,conc){
+  let next=0,done=0;
+  const worker=async()=>{
+    while(true){
+      const k=next++;
+      if(k>=need.length)return;
+      const pn=need[k];
+      let got='';
+      for(let attempt=0;attempt<2&&!got;attempt++){
+        try{
+          const r=await fetch(RELAY_BASE+'/acg/page?u='+encodeURIComponent(u)+'&t=c&p='+pn,{cache:'no-store'});
+          if(r.ok){const d=await r.json();if(d&&d.img)got=d.img;}
+        }catch(e){}
+        if(!got)await new Promise(x=>setTimeout(x,500*(attempt+1)));
+      }
+      out[k]=got;
+      done++;
+      if(onTick)onTick(done);
+    }
+  };
+  const ws=[];
+  const n=Math.min(conc||8,need.length);
+  for(let i=0;i<n;i++)ws.push(worker());
+  await Promise.all(ws);
+  return out;
+}
 async function loadAcgPages(it){
   if((it.seg||'')==='tgc'){loadTgComic(it);return;}
+  acgPreStop();acgRevoke();
+  const seg=it.seg||'h';
+  const id=it.id;
+  const isVid=(it.type==='v'||seg==='gif');
+  acgSeg=seg;acgId=id;acgName=it.title||'';acgUrls=[];
+  const cb=$('readerCache');
+  if(cb)cb.classList.toggle('hidden',!!isVid);
+  const u='/'+seg+'/'+id+'.html';
+  const t=isVid?'g':'c';
+  let cache=null;
+  if(!isVid){try{cache=await acgMetaGet(seg,id);}catch(e){}}
+  if(cache&&cache.urls&&cache.urls.length){
+    acgName=cache.name||acgName;
+    acgRender(cache.urls);
+    acgBuildCatalog();
+    kpBadge('缓存 '+((cache.p||[]).length)+'/'+cache.urls.length);
+    setTimeout(()=>{if(!acgPreBusy)kpBadge('');},2000);
+  }else{
+    readerList.innerHTML='<div class="loadingHint">加载中...</div>';
+  }
+  let d=null,err=null;
   try{
-    const seg=it.seg||'h';
-    const isVid=(it.type==='v'||seg==='gif');
-    const u='/'+seg+'/'+it.id+'.html';
-    const t=isVid?'g':'c';
-    let r=await fetch(RELAY_BASE+'/acg/detail?u='+encodeURIComponent(u)+'&id='+encodeURIComponent(it.id)+'&t='+t,{cache:'no-store'});
+    const r=await fetch(RELAY_BASE+'/acg/detail?u='+encodeURIComponent(u)+'&id='+encodeURIComponent(id)+'&t='+t,{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
-    let d=await r.json();
-    if(d.error)throw new Error(d.error);
-    let pages=d.pages||[];
-    if(!isVid&&!pages.length&&d.m3u8){
-      openAcgPlay(RELAY_BASE+'/acg/hls?u='+encodeURIComponent(d.m3u8),d.name||it.title);
+    d=await r.json();
+    if(d&&d.error)throw new Error(String(d.error));
+  }catch(e){err=e;}
+  if(isVid){
+    if(!d||(!d.play&&!d.m3u8)){
+      readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(err?err.message:'无播放地址')+'</div>';
       return;
     }
-    const totalN=parseInt(d.total,10)||pages.length||0;
-    if(!isVid&&(d.dynamic||pages.length<totalN)&&totalN>1){
-      if(pages.length>totalN)pages.length=totalN;
-      const need=[];
-      for(let i=pages.length?Math.max(2,pages.length+1):1;i<=totalN;i++)need.push(i);
-      for(let k=0;k<need.length;k+=6){
-        const batch=need.slice(k,k+6);
-        const got=await Promise.all(batch.map(async pn=>{
-          try{
-            const r2=await fetch(RELAY_BASE+'/acg/page?u='+encodeURIComponent(u)+'&t=c&p='+pn,{cache:'no-store'});
-            const d2=await r2.json();
-            return d2&&d2.img?d2.img:'';
-          }catch(e){return '';}
-        }));
-        for(const g of got)if(g&&pages.indexOf(g)<0)pages.push(g);
+    const play=d.play||('/acg/hls?u='+encodeURIComponent(d.m3u8));
+    openAcgPlay(RELAY_BASE+play,d.name||it.title);
+    return;
+  }
+  if(!d){
+    if(!(cache&&cache.urls&&cache.urls.length))readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(err?err.message:'网络错误')+'</div>';
+    return;
+  }
+  acgName=d.name||acgName;
+  let pages=(d.pages||[]).slice();
+  const totalN=parseInt(d.total,10)||pages.length||0;
+  if(!pages.length&&d.m3u8){openAcgPlay(RELAY_BASE+'/acg/hls?u='+encodeURIComponent(d.m3u8),d.name||it.title);return;}
+  if(cache&&cache.urls&&cache.urls.length>=2&&(!totalN||cache.urls.length>=totalN)&&acgUrls.length===cache.urls.length){
+    acgBuildCatalog();
+    acgUpdateTitle();
+    acgMetaTouch(seg,id,acgName,acgUrls);
+    acgSchedulePreload();
+    return;
+  }
+  if(totalN>1&&(d.dynamic||pages.length<totalN)){
+    if(pages.length>totalN)pages.length=totalN;
+    if(pages.length)acgRender(pages);
+    else readerList.innerHTML='';
+    const need=[];
+    for(let i=pages.length+1;i<=totalN;i++)need.push(i);
+    const out=new Array(need.length).fill('');
+    let loaded=0;
+    const flush=()=>{
+      const add=[];
+      while(loaded<need.length&&out[loaded]){add.push(out[loaded]);loaded++;}
+      if(add.length)acgAppendUrls(add);
+    };
+    await acgFetchPageUrls(u,need,out,()=>{
+      if(!currentAcg||acgId!==id)return;
+      flush();
+      kpBadge('载入 '+(pages.length+loaded)+'/'+totalN);
+    });
+    flush();
+    for(let round=0;round<4;round++){
+      const miss=[];
+      for(let i=0;i<out.length;i++)if(!out[i])miss.push(i);
+      if(!miss.length)break;
+      await new Promise(r=>setTimeout(r,700*(round+1)));
+      if(!currentAcg||acgId!==id)break;
+      const sub=new Array(miss.length).fill('');
+      await acgFetchPageUrls(u,miss.map(i=>need[i]),sub,()=>{},Math.max(1,4-round));
+      for(let j=0;j<miss.length;j++)if(sub[j])out[miss[j]]=sub[j];
+      flush();
+    }
+    {
+      const miss=[];
+      for(let i=0;i<out.length;i++)if(!out[i])miss.push(i);
+      if(miss.length&&currentAcg&&acgId===id){
+        const sub=new Array(miss.length).fill('');
+        await acgFetchPageUrls(u,miss.map(i=>need[i]),sub,()=>{},1);
+        for(let j=0;j<miss.length;j++)if(sub[j])out[miss[j]]=sub[j];
+        flush();
       }
     }
-    if(isVid){
-      const play=d.play||(d.m3u8?('/acg/hls?u='+encodeURIComponent(d.m3u8)):'');
-      if(!play)throw new Error('无播放地址');
-      openAcgPlay(RELAY_BASE+play,d.name||it.title);
-      return;
-    }
+    const rest=[];
+    for(let i=loaded;i<out.length;i++)if(out[i])rest.push(out[i]);
+    if(rest.length)acgAppendUrls(rest);
+    kpBadge('');
+  }else{
     if(!pages.length){readerList.innerHTML='<div class="loadingHint">该作品无图片</div>';return;}
-    readerList.innerHTML='';
-    const total=pages.length;
-    const nm=d.name||it.title||'';
-    let loaded=0;
-    readerTitle.textContent=nm+' ('+total+'页)';
-    for(const url of pages){
-      const img=document.createElement('img');
-      img.alt='';img.className='acgPage';img.referrerPolicy='no-referrer';
-      readerList.appendChild(img);
-      setImg(img,url,()=>{loaded++;readerTitle.textContent=nm+' ('+loaded+'/'+total+')';});
-    }
-    if(acgRestorePage>0){const _rp=acgRestorePage;acgRestorePage=0;restoreScrollTo(readerList,_rp);}
-  }catch(e){
-    readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
+    acgRender(pages);
   }
+  if(!acgUrls.length){readerList.innerHTML='<div class="loadingHint">该作品无图片</div>';return;}
+  acgBuildCatalog();
+  acgUpdateTitle();
+  acgMetaTouch(seg,id,acgName,acgUrls);
+  if(acgRestorePage>0){const rp=acgRestorePage;acgRestorePage=0;restoreScrollTo(readerList,rp);}
+  acgSchedulePreload();
 }
 function openAcgPlay(hlsUrl,title){
   playerReturn='acgReader';
@@ -808,7 +1112,10 @@ async function openComic(comic){
 }
 function renderChapterButtons(){
   const list=$('chapterList');
+  list.className='';
   list.innerHTML='';
+  const hd=document.querySelector('#chapterPanelHeader span');
+  if(hd)hd.textContent='章节目录';
   const cid=currentComic&&currentComic.id;
   for(const ch of chaptersCache){
     const btn=document.createElement('button');
@@ -931,7 +1238,7 @@ async function probePage(dir,n,signal){
 }
 function setupReaderScroll(){
   if(currentTg){setupTgReaderScroll();return;}
-  if(currentAcg){readerList.onscroll=()=>{if(restoringPos)return;saveAcgPos();};return;}
+  if(currentAcg){readerList.onscroll=()=>{if(restoringPos)return;saveAcgPos();acgSchedulePreload();};return;}
   readerList.onscroll=()=>{
     if(restoringPos){return;}
     if(loadingChapter)return;
@@ -1155,7 +1462,7 @@ $('zoomRange').addEventListener('input',e=>{readerZoom=parseInt(e.target.value,1
 window.addEventListener('resize',()=>{if(readerDeg&&readerDeg%90!==0)applyReaderDeg();});
 try{applyReaderDeg();}catch(e){}
 try{applyReaderZoom();}catch(e){}
-$('readerBack').addEventListener('click',()=>{closeRotPanel();if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();goBack(()=>{if(tgMode){extListMode=true;showView('externalView');renderExternal();}else showView('mainView');});});
+$('readerBack').addEventListener('click',()=>{acgPreStop();acgRevoke();closeRotPanel();if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();goBack(()=>{if(tgMode){extListMode=true;showView('externalView');renderExternal();}else showView('mainView');});});
 /* ===== comic page cache (persist) + preload ===== */
 const KP_CACHE='kj-comic-pages-v1';
 const KP_IDX_URL='https://kuaijing.local/kj-comic-index-v1';

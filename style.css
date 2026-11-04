@@ -97,6 +97,9 @@ a.card, a.extCard { display:block; color:inherit; text-decoration:none; }
 #chapterList { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:6px; }
 .chapterItem { display:block; width:100%; text-align:left; padding:12px 12px; font-size:14px; color:var(--text); border-bottom:1px solid var(--border); border-radius:6px; line-height:1.4; }
 .chapterItem:active { background:var(--surface2); }
+#chapterList.acgPages { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; padding:8px; align-content:start; }
+#chapterList.acgPages .chapterItem { text-align:center; padding:10px 0; font-size:13px; border:1px solid var(--border); border-radius:6px; }
+#chapterList.acgPages .chapterItem:active { background:var(--accent); color:#fff; }
 
 /* ===== player ===== */
 #playerView { position:fixed; inset:0; z-index:200; background:#000; display:flex; flex-direction:column; }
