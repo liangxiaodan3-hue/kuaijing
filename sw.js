@@ -1,4 +1,4 @@
-const CACHE = 'kuaixing-v13';
+const CACHE = 'kuaixing-v18';
 const KEEP = ['kj-comic-pages-v1'];
 const SHELL = ['index.html','style.css','app.js','manifest.json','icons/icon-192.png','icons/icon-512.png','icons/apple-touch-icon.png','index/v91_index.json'];
 self.addEventListener('install', e => {

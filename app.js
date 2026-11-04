@@ -194,6 +194,11 @@ const RELAY_BASE='https://kuaijing.liangxiaodan3.workers.dev';
 let extSection=0,extKw='',extLoaded=false,extData=null;
 let playerReturn='mainView';
 let extPlaying=null; // {id,name,episodes:[],idx} 短剧播放上下文
+/* ===== acgxmh external (relay /acg) ===== */
+let currentAcg=null;
+let acgOn=false,acgUrl='/',acgPage=1,acgEnd=false;
+let acgSeen=new Set();
+let acgRestorePage=0,acgPosTimer=0;
 /* ===== view scroll memory ===== */
 const KJ_VIEWS=['mainView','readerView','playerView','forumView','novelView','externalView'];
 const VIEW_SCROLL={mainView:0,externalView:0};
@@ -228,6 +233,7 @@ function switchMode(m){
   forumPage=1;forumEnd=false;forumKw='';forumKwMode=false;
   novelPage=1;novelEnd=false;novelKw='';novelKwMode=false;
   comicCid='';comicTid='';vodType='';vodPid='';forumBid='';novelCid='';novelTid='';
+  acgOn=false;acgUrl='/';acgPage=1;acgEnd=false;acgSeen=new Set();
   grid.innerHTML='';
   loadMore.classList.add('hidden');
   resetMainScroll();
@@ -273,6 +279,7 @@ async function reloadCats(){
       const hr=await apiCall('/v2/api/comic/hotSearch',{},'GET');
       const hw=(hr.data&&hr.data.hot_keyword)||[];
       buildHot(hw);
+      buildAcgChips(catClassChips,ACG_COMICS);
     }else if(mode===1){
       catClassRow.classList.remove('hidden');catChildRow.classList.remove('hidden');
       const r=await apiCall('/api/app/vodClass',{},'GET');
@@ -284,6 +291,7 @@ async function reloadCats(){
       let hw=[];
       if(Array.isArray(hd))for(const o of hd){const list=o.list||[];for(const k of list){const w=k.vod_name||'';if(w&&!isBlocked(w)&&!hotBad(w)){hw.push(w);if(hw.length>=20)break;}}if(hw.length>=20)break;}
       buildHot(hw);
+      buildAcgChips(catClassChips,ACG_VIDEOS);
     }else if(mode===2){
       catClassRow.classList.remove('hidden');
       const r=await apiCall('/v2/api/forum/index',{id:1});
@@ -320,6 +328,7 @@ function buildChips(container,items,key,clearFn){
     container.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
     all.classList.add('active');
     clearFn();
+    acgOn=false;acgUrl='/';acgPage=1;acgEnd=false;acgSeen=new Set();
     if(key==='cid')comicCid='';
     if(key==='tid')comicTid='';
     if(key==='vpid'){vodPid='';vodType='';catChildChips.innerHTML='';}
@@ -335,6 +344,7 @@ function buildChips(container,items,key,clearFn){
     chip.addEventListener('click',()=>{
       container.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
       chip.classList.add('active');
+      acgOn=false;acgUrl='/';acgPage=1;acgEnd=false;acgSeen=new Set();
       if(key==='cid'){comicCid=item.id;comicTid='';catTagChips.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));catTagChips.firstElementChild.classList.add('active');}
       if(key==='tid')comicTid=item.id;
       if(key==='vpid'){
@@ -380,6 +390,28 @@ async function doLoad(reset){
   loadMore.textContent='加载中...';
   try{
     let items=[];
+    if((mode===0||mode===1)&&acgOn){
+      const want=mode===0?'c':'v';
+      const out=[];
+      let guard=0;
+      while(out.length<36&&!acgEnd&&guard<6){
+        const d=await acgFetchList(acgUrl,acgPage);
+        const arr=d.items||d.list||[];
+        for(const it of arr){
+          const key=String(it.id||it.url||it.h||'');
+          if(key&&acgSeen.has(key))continue;
+          if(key)acgSeen.add(key);
+          const isVid=(it.type==='v'||it.seg==='gif');
+          if(want==='v'?isVid:!isVid)out.push(it);
+        }
+        if(!arr.length||acgPage>200)acgEnd=true;else acgPage++;
+        guard++;
+      }
+      if(reset)grid.innerHTML='';
+      if(!out.length&&reset)grid.innerHTML='<div class="acgEmpty">暂无作品·换个分类试试</div>';
+      for(const it of out)renderAcgCard(it);
+      return;
+    }
     if(mode===0){
       let raw1=[];
       if(comicKwMode){
@@ -425,12 +457,16 @@ async function doLoad(reset){
     }
     if(reset)grid.innerHTML='';
     renderItems(items);
+    if(reset&&((mode===0&&comicKwMode)||(mode===1&&vodKwMode))){try{await appendAcgSearch();}catch(e){}}
   }catch(e){
     if(reset)grid.innerHTML='';
     showToast('加载失败: '+e.message);
   }finally{
     loading=false;
-    if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd)||(mode===3&&novelEnd)){
+    if(acgOn&&(mode===0||mode===1)){
+      loadMore.textContent=acgEnd?'没有更多了':'';
+      if(!acgEnd)loadMore.classList.add('hidden');
+    }else if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd)||(mode===3&&novelEnd)){
       loadMore.textContent='没有更多了';
     }else{
       loadMore.classList.add('hidden');
@@ -525,17 +561,198 @@ function lazyImg(container,url){
     if(sp)sp.style.display='none';
   }).catch(()=>{});
 }
+/* ===== acgxmh external (relay /acg) ===== */
+const ACG_COMICS=[
+  {name:'外站·首页',url:'/'},
+  {name:'外站·丝袜',url:'/tags/stockings.html'},
+  {name:'外站·女仆',url:'/tags/maid.html'},
+  {name:'外站·眼镜',url:'/tags/glasses.html'},
+  {name:'外站·巨乳',url:'/tags/huge-breasts.html'},
+  {name:'外站·全彩',url:'/tags/full-color.html'},
+  {name:'外站·汉化',url:'/tags/chinese.html'},
+  {name:'外站·无码',url:'/tags/uncensored.html'},
+  {name:'外站·熟女',url:'/tags/milf.html'}
+];
+const ACG_VIDEOS=[
+  {name:'外站·3D',url:'/tags/_3_d.html'},
+  {name:'外站·长视频',url:'/tags/stocking.html'},
+  {name:'外站·cosplay',url:'/tags/cosplay.html'},
+  {name:'外站·制服',url:'/tags/school-uniform.html'}
+];
+function acgListUrl(u,p){return RELAY_BASE+'/acg/list?u='+encodeURIComponent(u)+'&p='+p;}
+async function acgFetchList(u,p){
+  const r=await fetch(acgListUrl(u,p),{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const d=await r.json();
+  if(d&&d.error)throw new Error(String(d.error));
+  return d;
+}
+function buildAcgChips(container,items){
+  const lab=document.createElement('span');
+  lab.className='acgLabel';lab.textContent='外站';
+  container.appendChild(lab);
+  for(const it of items){
+    const chip=document.createElement('span');
+    chip.className='chip acg';chip.textContent=it.name;
+    chip.addEventListener('click',()=>{
+      container.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active');
+      acgOn=true;acgUrl=it.url;acgPage=1;acgEnd=false;acgSeen=new Set();
+      comicKw='';comicKwMode=false;vodKw='';vodKwMode=false;
+      grid.innerHTML='';
+      resetMainScroll();
+      doLoad(true);
+    });
+    container.appendChild(chip);
+  }
+}
+function renderAcgCard(it){
+  const div=document.createElement('a');
+  div.className='card';
+  const seg=it.seg||'h';
+  const isVid=(it.type==='v'||seg==='gif');
+  div.href=mkHref('a',it.id,it.title,lastTabMode)+'&s='+encodeURIComponent(seg);
+  div.innerHTML='<div class="cover"><span>'+(isVid?'\u25B6':'\uD83D\uDCD6')+'</span><span class="badge">外站</span></div>'+
+    '<div class="info"><div class="name">'+esc(it.title||'')+'</div><div class="sub">'+esc((it.cat||'')+(it.time?' · '+it.time:''))+'</div></div>';
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openAcgComic(it));
+  });
+  grid.appendChild(div);
+  if(it.cover){
+    const cov=div.querySelector('.cover');
+    const img=document.createElement('img');
+    img.loading='lazy';img.alt='';img.referrerPolicy='no-referrer';
+    img.onerror=()=>{img.onerror=null;img.src=RELAY_BASE+'/acg/img?u='+encodeURIComponent(it.cover);};
+    img.src=RELAY_BASE+'/acg/img?u='+encodeURIComponent(it.cover);
+    cov.insertBefore(img,cov.firstChild);
+    const sp=cov.querySelector('span');
+    if(sp)sp.style.display='none';
+  }
+}
+function openAcgComic(it){
+  kpStop();
+  currentComic=null;
+  currentAcg=it;
+  recordHistory('acg',it);
+  const _p0=posOf('a'+it.id);acgRestorePage=_p0?(_p0.page||0):0;
+  readerTitle.textContent=it.title||'';
+  readerList.innerHTML='<div class="loadingHint">加载中...</div>';
+  showView('readerView');
+  setupReaderScroll();
+  loadAcgPages(it);
+}
+async function loadAcgPages(it){
+  try{
+    const seg=it.seg||'h';
+    const isVid=(it.type==='v'||seg==='gif');
+    const u='/'+seg+'/'+it.id+'.html';
+    const t=isVid?'g':'c';
+    let r=await fetch(RELAY_BASE+'/acg/detail?u='+encodeURIComponent(u)+'&id='+encodeURIComponent(it.id)+'&t='+t,{cache:'no-store'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    let d=await r.json();
+    if(d.error)throw new Error(d.error);
+    let pages=d.pages||[];
+    if(!isVid&&!pages.length&&d.m3u8){
+      openAcgPlay(RELAY_BASE+'/acg/hls?u='+encodeURIComponent(d.m3u8),d.name||it.title);
+      return;
+    }
+    const totalN=parseInt(d.total,10)||pages.length||0;
+    if(!isVid&&(d.dynamic||pages.length<totalN)&&totalN>1){
+      if(pages.length>totalN)pages.length=totalN;
+      const need=[];
+      for(let i=pages.length?Math.max(2,pages.length+1):1;i<=totalN;i++)need.push(i);
+      for(let k=0;k<need.length;k+=6){
+        const batch=need.slice(k,k+6);
+        const got=await Promise.all(batch.map(async pn=>{
+          try{
+            const r2=await fetch(RELAY_BASE+'/acg/page?u='+encodeURIComponent(u)+'&t=c&p='+pn,{cache:'no-store'});
+            const d2=await r2.json();
+            return d2&&d2.img?d2.img:'';
+          }catch(e){return '';}
+        }));
+        for(const g of got)if(g&&pages.indexOf(g)<0)pages.push(g);
+      }
+    }
+    if(isVid){
+      const play=d.play||(d.m3u8?('/acg/hls?u='+encodeURIComponent(d.m3u8)):'');
+      if(!play)throw new Error('无播放地址');
+      openAcgPlay(RELAY_BASE+play,d.name||it.title);
+      return;
+    }
+    if(!pages.length){readerList.innerHTML='<div class="loadingHint">该作品无图片</div>';return;}
+    readerList.innerHTML='';
+    const total=pages.length;
+    const nm=d.name||it.title||'';
+    let loaded=0;
+    readerTitle.textContent=nm+' ('+total+'页)';
+    for(const url of pages){
+      const img=document.createElement('img');
+      img.alt='';img.className='acgPage';img.referrerPolicy='no-referrer';
+      readerList.appendChild(img);
+      setImg(img,url,()=>{loaded++;readerTitle.textContent=nm+' ('+loaded+'/'+total+')';});
+    }
+    if(acgRestorePage>0){const _rp=acgRestorePage;acgRestorePage=0;restoreScrollTo(readerList,_rp);}
+  }catch(e){
+    readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
+  }
+}
+function openAcgPlay(hlsUrl,title){
+  playerReturn='acgReader';
+  plSetNavVisible(false);
+  playerTitle.textContent=title||'';
+  playerStatus.textContent='';
+  showView('playerView');
+  plPlay(hlsUrl);
+}
+async function appendAcgSearch(){
+  const kw=mode===0?comicKw:vodKw;
+  if(!kw)return;
+  let d;
+  try{
+    const r=await fetch(RELAY_BASE+'/acg/find?kw='+encodeURIComponent(kw),{cache:'no-store'});
+    if(!r.ok)return;
+    d=await r.json();
+  }catch(e){return;}
+  if(!d||d.error)return;
+  const topics=[];
+  if(d.hit&&d.hit.h)topics.push(d.hit.h);
+  for(const o of (d.list||[])){if(o&&o.h&&topics.indexOf(o.h)<0)topics.push(o.h);}
+  const seen={};
+  const out=[];
+  for(const u of topics.slice(0,5)){
+    try{
+      const li=await acgFetchList(u,1);
+      for(const it of (li.items||[])){
+        if(seen[it.id])continue;
+        const isVid=(it.type==='v'||it.seg==='gif');
+        if(mode===0&&isVid)continue;
+        if(mode===1&&!isVid)continue;
+        seen[it.id]=1;out.push(it);
+        if(out.length>=36)break;
+      }
+    }catch(e){}
+    if(out.length>=36)break;
+  }
+  if(!out.length)return;
+  const sep=document.createElement('div');
+  sep.className='acgSep';sep.textContent='外站结果 · '+out.length+' 部';
+  grid.appendChild(sep);
+  for(const it of out)renderAcgCard(it);
+}
 /* ===== infinite scroll ===== */
 function onInfiniteScroll(){
   if(Date.now()<scrollGuardUntil)return;
   if($('mainView').classList.contains('hidden'))return;
   if(mode===4)return;
   if(loading)return;
+  if(acgOn&&(mode===0||mode===1)&&acgEnd)return;
   if((mode===0&&comicEnd)||(mode===1&&vodEnd)||(mode===2&&forumEnd)||(mode===3&&novelEnd))return;
   const se=document.scrollingElement||document.documentElement;
   if(se.scrollTop+se.clientHeight>=se.scrollHeight-400){
-    if(mode===0){comicPage++;doLoad(false);}
-    else if(mode===1){vodPage++;doLoad(false);}
+    if(mode===0){if(acgOn)doLoad(false);else{comicPage++;doLoad(false);}}
+    else if(mode===1){if(acgOn)doLoad(false);else{vodPage++;doLoad(false);}}
     else if(mode===2){forumPage++;doLoad(false);}
     else{novelPage++;doLoad(false);}
   }
@@ -547,6 +764,7 @@ let chaptersCache=[],loadedChapters=[],currentChapterIdx=-1,loadingChapter=false
 let pendingRestore=0,restoreTries=0,restoringPos=false,posTimer=0;
 async function openComic(comic){
   kpStop();
+  currentAcg=null;
   currentComic=comic;
   recordHistory('comic',comic);
   readerTitle.textContent=comic.name;
@@ -695,6 +913,7 @@ async function probePage(dir,n,signal){
   return null;
 }
 function setupReaderScroll(){
+  if(currentAcg){readerList.onscroll=()=>{if(restoringPos)return;saveAcgPos();};return;}
   readerList.onscroll=()=>{
     if(restoringPos){return;}
     if(loadingChapter)return;
@@ -874,6 +1093,17 @@ function kpBadge(txt){
   el.classList.toggle('on',!!txt);
 }
 function setImg(img,url,onDone){
+  if(currentAcg){
+    img.referrerPolicy='no-referrer';
+    img.onload=()=>{if(onDone)onDone(true);};
+    img.onerror=()=>{
+      if(img.dataset.proxied){if(onDone)onDone(false);return;}
+      img.dataset.proxied='1';
+      img.src=RELAY_BASE+'/acg/img?u='+encodeURIComponent(url);
+    };
+    img.src=url;
+    return;
+  }
   loadXorImage(url,{store:true}).then(src=>{img.src=src;if(onDone)onDone(true);})
     .catch(()=>loadXorImage(url,{store:true,forceNet:true})
       .then(src=>{img.src=src;if(onDone)onDone(true);})
@@ -1103,6 +1333,7 @@ async function ensureHls(){
   });
 }
 async function openVod(v){
+  currentAcg=null;
   playerReturn='mainView';
   recordHistory('vod',v);
   playerTitle.textContent=v.vod_name;
@@ -1162,12 +1393,15 @@ $('playerBack').addEventListener('click',()=>{
   if(playerReturn==='externalView'){
     extListMode=true;
     goBack(()=>{renderExternal();showView('externalView');});
+  }else if(playerReturn==='acgReader'){
+    goBack(()=>showView('readerView'));
   }else{
     goBack(()=>showView('mainView'));
   }
 });
 /* ===== forum detail ===== */
 async function openForum(f){
+  currentAcg=null;
   forumTitle.textContent=f.title;
   forumBody.innerHTML='<div style="text-align:center;padding:40px;color:var(--text2)">加载中...</div>';
   showView('forumView');
@@ -1253,7 +1487,7 @@ function resetExtScroll(){
 function showView(id){
   const prev=currentViewId();
   if(prev!==id)saveScroll(prev);
-  if(id!=='readerView')doSaveReaderPos(true);
+  if(id!=='readerView'){doSaveReaderPos(true);saveAcgPos(true);}
   KJ_VIEWS.forEach(v=>{
     $(v).classList.toggle('hidden',v!==id);
   });
@@ -1288,6 +1522,23 @@ function doSaveReaderPos(force){
   for(let i=0;i<imgs.length;i++){if(imgs[i].getBoundingClientRect().top-rect.top<=120)page=i;else break;}
   setPos(currentComic.id,{cid:cur.id,name:cur.name,page:page,ts:Date.now()});
 }
+function saveAcgPos(force){
+  if(!currentAcg||!readerList)return;
+  if(readerList.classList.contains('hidden'))return;
+  const rect=readerList.getBoundingClientRect();
+  if(rect.width===0||rect.height===0)return;
+  const run=()=>{
+    acgPosTimer=0;
+    if(!currentAcg)return;
+    const imgs=readerList.querySelectorAll('img');
+    let page=0;
+    for(let i=0;i<imgs.length;i++){if(imgs[i].getBoundingClientRect().top-rect.top<=120)page=i;else break;}
+    setPos('a'+currentAcg.id,{page:page,title:currentAcg.title,ts:Date.now()});
+  };
+  if(force){if(acgPosTimer){clearTimeout(acgPosTimer);acgPosTimer=0;}run();return;}
+  if(acgPosTimer)return;
+  acgPosTimer=setTimeout(run,600);
+}
 function restoreScrollTo(container,page){
   restoringPos=true;restoreTries=0;let stable=0,last=-1;
   const tick=()=>{
@@ -1317,7 +1568,8 @@ function recordHistory(type,item){
   let list=getHistory();
   list=list.filter(e=>!(e.type===type&&e.id===id));
   let rec={type,id,ts:Date.now()};
-  if(type==='comic')rec.item={id:item.id,name:item.name,pic:item.pic,pay:item.pay,latest_chapter_name:item.latest_chapter_name};
+  if(type==='acg')rec.item={id:item.id,title:item.title,cover:item.cover,cat:item.cat,seg:item.seg,kind:item.type};
+  else if(type==='comic')rec.item={id:item.id,name:item.name,pic:item.pic,pay:item.pay,latest_chapter_name:item.latest_chapter_name};
   else if(type==='vod')rec.item={vod_id:item.vod_id,vod_name:item.vod_name,vod_pic:item.vod_pic,vod_duration:item.vod_duration,vod_mode:item.vod_mode,type_id:item.type_id};
   else rec.item={id:item.id,name:item.name,pic:item.pic,author:item.author,text_num:item.text_num,pay:item.pay,latest_chapter_name:item.latest_chapter_name};
   list.unshift(rec);
@@ -1337,24 +1589,26 @@ function renderHistory(){
   clear.textContent='清空历史';
   clear.addEventListener('click',()=>{saveHistory([]);renderHistory();});
   grid.appendChild(clear);
-  const labels={comic:'漫画',vod:'视频',novel:'小说'};
+  const labels={comic:'漫画',vod:'视频',novel:'小说',acg:'外站'};
   for(const e of list){
     const it=e.item||{};
-    const name=e.type==='vod'?it.vod_name:it.name;
-    const pic=e.type==='vod'?it.vod_pic:it.pic;
+    const name=e.type==='vod'?it.vod_name:(e.type==='acg'?it.title:it.name);
+    const pic=e.type==='vod'?it.vod_pic:(e.type==='acg'?it.cover:it.pic);
     let sub=e.type==='vod'?(it.vod_duration?('时长 '+it.vod_duration):''):(it.latest_chapter_name?('更新至 '+it.latest_chapter_name):'');
+    if(e.type==='acg')sub=esc((it.cat||'')+(it.seg?' · '+it.seg:''));
     if(e.type==='comic'){const p=posOf(it.id);if(p&&p.name)sub='读到 '+p.name+(it.latest_chapter_name?' · 更新至 '+it.latest_chapter_name:'');}
     const div=document.createElement('a');
     div.className='card';
-    div.href=e.type==='comic'?mkHref('c',it.id,it.name,4):e.type==='vod'?mkHref('v',it.vod_id,it.vod_name,4):mkHref('n',it.id,it.name,4);
-    const coverUrl=resolveImgUrl(pic);
+    div.href=e.type==='comic'?mkHref('c',it.id,it.name,4):e.type==='vod'?mkHref('v',it.vod_id,it.vod_name,4):e.type==='acg'?(mkHref('a',it.id,it.title,4)+'&s='+encodeURIComponent(it.seg||'h')):mkHref('n',it.id,it.name,4);
+    const coverUrl=e.type==='acg'?(it.cover?(RELAY_BASE+'/acg/img?u='+encodeURIComponent(it.cover)):null):resolveImgUrl(pic);
     div.innerHTML='<div class="cover"><span>'+labels[e.type]+'</span></div>'+
       '<div class="info"><div class="name">'+esc(name||'')+'</div><div class="sub">'+esc(sub)+'</div></div>';
     div.addEventListener('click',ev=>{
       if(ev.metaKey||ev.ctrlKey||ev.shiftKey||ev.altKey||ev.button!==0)return;
       ev.preventDefault();
       navTo(div.getAttribute('href'),()=>{
-        if(e.type==='comic')openComic(it);
+        if(e.type==='acg')openAcgComic({id:it.id,title:it.title,cover:it.cover,cat:it.cat,seg:it.seg||'h',type:it.kind});
+        else if(e.type==='comic')openComic(it);
         else if(e.type==='vod')openVod(it);
         else openNovel(it);
       });
@@ -1680,7 +1934,7 @@ async function extRemoteNext(seq){
     if(seq===extSeq)st.busy=false;
   }
 }
-const KJ_BUILD='v13';
+const KJ_BUILD='v18';
 console.log('KJ build '+KJ_BUILD);
 function renderExternal(){extListMode=true;renderExternalBody();restoreScrollSoon('externalView');}
 function renderExternalBody(){
@@ -2046,15 +2300,20 @@ function applyRoute(){
     else{switchMode(n);if(currentViewId()!=='mainView')showView('mainView');}
     return;
   }
-  if((m=/^#\/([cvfndxe])\/([^?]+)(?:\?(.*))?$/.exec(h))){
+  if((m=/^#\/([cvfndxea])\/([^?]+)(?:\?(.*))?$/.exec(h))){
     let id=m[2];try{id=decodeURIComponent(id);}catch(e){}
     const q=parseQS(m[3]||'');
-    openFromRoute(m[1],id,q.n||'');
+    openFromRoute(m[1],id,q.n||'',q);
     return;
   }
   switchMode(0);
 }
-function openFromRoute(k,id,name){
+function openFromRoute(k,id,name,q){
+  if(k==='a'){
+    const seg=(q&&q.s)||'h';
+    openAcgComic({id:id,title:name,seg:seg,type:(seg==='gif'?'v':'c')});
+    return;
+  }
   if(k==='c'){openComic({id:id,name:name});return;}
   if(k==='v'){openVod({vod_id:id,vod_name:name});return;}
   if(k==='f'){openForum({id:id,title:name,hits:0,boardName:''});return;}
@@ -2072,7 +2331,7 @@ if('serviceWorker' in navigator){
 }
 (function boot(){
   const h=location.hash||'';
-  if(/^#\/([cvfndxe])\//.test(h)){
+  if(/^#\/([cvfndxea])\//.test(h)){
     const q=parseQS(h.indexOf('?')>=0?h.slice(h.indexOf('?')+1):'');
     const parent=(q.b==='ext')?'#/ext':('#/m/'+((q.b!==undefined&&q.b!=='')?q.b:'0'));
     try{history.replaceState({kjBase:1},' ',parent);history.pushState({kjDetail:1},' ',h);}catch(e){}
