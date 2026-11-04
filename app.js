@@ -634,6 +634,7 @@ function renderAcgCard(it){
 function openAcgComic(it){
   kpStop();
   currentComic=null;
+  currentTg=null;
   currentAcg=it;
   recordHistory('acg',it);
   const _p0=posOf('a'+it.id);acgRestorePage=_p0?(_p0.page||0):0;
@@ -644,6 +645,7 @@ function openAcgComic(it){
   loadAcgPages(it);
 }
 async function loadAcgPages(it){
+  if((it.seg||'')==='tgc'){loadTgComic(it);return;}
   try{
     const seg=it.seg||'h';
     const isVid=(it.type==='v'||seg==='gif');
@@ -740,6 +742,20 @@ async function appendAcgSearch(){
   sep.className='acgSep';sep.textContent='外站结果 · '+out.length+' 部';
   grid.appendChild(sep);
   for(const it of out)renderAcgCard(it);
+  try{
+    const td=await tgGet('/tg/search?kw='+encodeURIComponent(kw)+'&p=1');
+    const arr=[];
+    for(const v of (td.comics||[]))arr.push({type:'m',id:v.id,title:v.title,cover:v.cover});
+    for(const v of (td.videos||[]))if(mode===1)arr.push({type:'v',id:v.id,title:v.title,cover:v.cover});
+    for(const v of (td.posts||[]))if(mode===1)arr.push({type:'p',id:v.id,title:v.title,cover:v.cover});
+    const use=arr.filter(x=>x.title&&!nameBlocked(x.title)).slice(0,18);
+    if(use.length){
+      const s2=document.createElement('div');
+      s2.className='acgSep';s2.textContent='热瓜 · '+use.length+' 部';
+      grid.appendChild(s2);
+      for(const it of use)tgCard(it,grid);
+    }
+  }catch(e){}
 }
 /* ===== infinite scroll ===== */
 function onInfiniteScroll(){
@@ -765,6 +781,7 @@ let pendingRestore=0,restoreTries=0,restoringPos=false,posTimer=0;
 async function openComic(comic){
   kpStop();
   currentAcg=null;
+  currentTg=null;
   currentComic=comic;
   recordHistory('comic',comic);
   readerTitle.textContent=comic.name;
@@ -913,6 +930,7 @@ async function probePage(dir,n,signal){
   return null;
 }
 function setupReaderScroll(){
+  if(currentTg){setupTgReaderScroll();return;}
   if(currentAcg){readerList.onscroll=()=>{if(restoringPos)return;saveAcgPos();};return;}
   readerList.onscroll=()=>{
     if(restoringPos){return;}
@@ -1487,7 +1505,7 @@ function resetExtScroll(){
 function showView(id){
   const prev=currentViewId();
   if(prev!==id)saveScroll(prev);
-  if(id!=='readerView'){doSaveReaderPos(true);saveAcgPos(true);}
+  if(id!=='readerView'){doSaveReaderPos(true);saveAcgPos(true);tgSavePos(true);}
   KJ_VIEWS.forEach(v=>{
     $(v).classList.toggle('hidden',v!==id);
   });
@@ -1729,6 +1747,7 @@ function loadExtIndex(){
   return EXT_INDEX_P;
 }
 function extTheme(){
+  if(tgMode)return 'tg';
   return extSection===0?'drama':extSection===1?'video':'novel';
 }
 const EXT_CONTENT_CATS=['吃瓜爆料','熟女做爱','成人动漫','童颜巨乳','少妇换妻','内射中出','会所按摩','91探花','丝袜美腿','极品少妇','三级片','无码专区','国产自拍','制服诱惑','偷拍偷录'];
@@ -1750,6 +1769,11 @@ function extPickCat(c){
   extRemote=null;
   extKwRemote=null;
   extSeq++;
+  if(tgMode){
+    tgCat=(c==null?'0':String(c));
+    tgState={items:[],page:0,more:true,busy:false,failed:'',kw:''};
+    tgSeq++;
+  }
   extKw='';
   const inp=$('extSearchInput');
   if(inp)inp.value='';
@@ -1767,6 +1791,20 @@ function extSortCats(){
 function renderExtCats(){
   const row=$('extCatRow');
   row.innerHTML='';
+  const mk=(txt,val,on)=>{
+    const b=document.createElement('span');
+    b.className='extChip'+(on?' active':'');
+    b.textContent=txt;
+    b.addEventListener('click',()=>extPickCat(val));
+    row.appendChild(b);
+  };
+  if(tgMode){
+    const cats=(tgHomeCache&&tgHomeCache.cats)||[];
+    mk('全部','0',tgCat==='0');
+    for(const c of cats)mk(c.label,c.id,String(c.id)===String(tgCat));
+    return;
+  }
+  const add=(txt,val)=>mk(txt,val,extCat===val);
   const labels=[];
   if(extSection===1){
     loadExtCats();
@@ -1778,18 +1816,31 @@ function renderExtCats(){
     const seen={};
     for(const it of list){if(it.cat&&!seen[it.cat]){seen[it.cat]=1;labels.push(it.cat);}}
   }
-  const add=(txt,val)=>{
-    const b=document.createElement('span');
-    b.className='extChip'+(extCat===val?' active':'');
-    b.textContent=txt;
-    b.addEventListener('click',()=>extPickCat(val));
-    row.appendChild(b);
-  };
-  add('\u5168\u90e8',null);
+  add('全部',null);
   for(const c of labels)add(c,c);
 }
 function renderExtHot(){
   const row=$('extHotRow');
+  if(tgMode){
+    const hot=(tgHomeCache&&tgHomeCache.hot)||[];
+    if(!hot.length){row.classList.add('hidden');return;}
+    row.classList.remove('hidden');
+    const lb=document.createElement('span');
+    lb.className='extHotLabel';lb.textContent='热搜';
+    row.appendChild(lb);
+    for(const h of hot.slice(0,10)){
+      const b=document.createElement('span');
+      b.className='extChip hot';b.textContent=h.kw;
+      b.addEventListener('click',()=>{
+        const inp=$('extSearchInput');
+        if(inp)inp.value=h.kw;
+        tgState={items:[],page:0,more:true,busy:false,failed:'',kw:h.kw};
+        tgSeq++;tgLoad(1);
+      });
+      row.appendChild(b);
+    }
+    return;
+  }
   row.innerHTML='';
   if(extSection!==1||!extData){row.classList.add('hidden');return;}
   const cnt={};
@@ -1814,7 +1865,7 @@ function renderExtMoreTail(){
   if(old)old.remove();
   const d=document.createElement('div');
   d.id='extMoreTail';d.className='extMoreTail';d.textContent='\u4e0b\u6ed1\u52a0\u8f7d\u66f4\u591a';
-  d.addEventListener('click',()=>{if(extRemote&&!extRemote.busy)extRemoteNext(extSeq);});
+  d.addEventListener('click',()=>{if(tgMode){if(tgState&&!tgState.busy)tgLoad(tgState.page+1);return;}if(extRemote&&!extRemote.busy)extRemoteNext(extSeq);});
   $('extBody').appendChild(d);
 }
 function renderExtEndTail(){
@@ -1934,10 +1985,364 @@ async function extRemoteNext(seq){
     if(seq===extSeq)st.busy=false;
   }
 }
-const KJ_BUILD='v18';
+/* ===== ttrgw (天天热瓜) 第五源 ===== */
+let tgMode=false, tgTab='v', tgCat='0', tgSort='1';
+let tgState=null, tgHomeCache=null, tgHomeP=null, tgSeq=0;
+let currentTg=null, tgChapters=[], tgChIdx=-1, tgPosTimer=0;
+const TG_TABS=[['v','视频'],['m','漫画'],['p','八卦']];
+async function tgGet(p){
+  const r=await fetch(RELAY_BASE+p,{cache:'no-store'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const d=await r.json();
+  if(d&&d.error)throw new Error(d.error);
+  return d;
+}
+function tgActivate(){
+  tgMode=true;extSection=3;
+  document.querySelectorAll('.extSeg').forEach(x=>x.classList.toggle('active',x.dataset.seg==='3'));
+}
+function loadTgHome(){
+  if(tgHomeCache)return Promise.resolve(tgHomeCache);
+  if(tgHomeP)return tgHomeP;
+  tgHomeP=tgGet('/tg/home').then(d=>{
+    tgHomeCache=d||{cats:[],hot:[]};
+    if(tgMode){renderExtCats();renderExtHot();}
+    return tgHomeCache;
+  }).catch(()=>{tgHomeP=null;tgHomeCache={cats:[],hot:[]};return tgHomeCache;});
+  return tgHomeP;
+}
+function renderTgTabs(){
+  const row=$('tgTabRow');
+  if(!row)return;
+  row.classList.remove('hidden');
+  row.innerHTML='';
+  for(const kv of TG_TABS){
+    const b=document.createElement('span');
+    b.className='extChip'+(tgTab===kv[0]?' active':'');
+    b.textContent=kv[1];
+    b.addEventListener('click',()=>{
+      if(tgTab===kv[0])return;
+      tgTab=kv[0];tgCat='0';
+      tgState={items:[],page:0,more:true,busy:false,failed:'',kw:''};
+      tgSeq++;tgLoad(1);
+    });
+    row.appendChild(b);
+  }
+}
+function tgCover(container,url){
+  if(!url)return;
+  const img=document.createElement('img');
+  img.loading='lazy';img.alt='';img.referrerPolicy='no-referrer';
+  img.src=RELAY_BASE+'/tg/img?u='+encodeURIComponent(url);
+  img.onload=()=>{const sp=container.querySelector('span');if(sp)sp.style.display='none';};
+  img.onerror=()=>{img.remove();};
+  container.insertBefore(img,container.firstChild);
+}
+function tgCard(it,target){
+  const host=target||$('extBody');
+  const t=it.type||'v';
+  const div=document.createElement('a');
+  div.className='extCard '+(t==='v'?'video':t==='m'?'drama':'novel');
+  div.href=t==='m'
+    ? (mkHref('a',it.id,it.title,'ext')+'&s=tgc')
+    : (mkHref('t',it.id,it.title,'ext')+'&k='+t);
+  div.innerHTML='<div class="extCover"><span>'+(t==='m'?'📖':'🎞')+'</span><i class="extBadge">'+(t==='m'?'漫画':t==='p'?'八卦':'视频')+'</i></div>'+
+    '<div class="extName">'+esc(it.title||'')+'</div>';
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>tgOpen(it));
+  });
+  host.appendChild(div);
+  tgCover(div.querySelector('.extCover'),it.cover);
+}
+function tgOpen(it){
+  if(!it)return;
+  if((it.type||'v')==='m'){openTgComic(it);return;}
+  openTgVideo(it);
+}
+function tgPaint(){
+  const body=$('extBody');
+  body.innerHTML='';
+  const st=tgState;
+  if(!st)return;
+  if(!st.items.length){
+    const msg=st.failed?('加载失败: '+st.failed+' · 点此重试'):(st.kw?('「'+st.kw+'」暂无结果 · 点此重试'):'暂无内容 · 点此重试');
+    body.appendChild(extEmptyRetry(msg,()=>{if(st.busy)return;tgLoad(1);}));
+    return;
+  }
+  for(const it of st.items)tgCard(it);
+  if(st.more)renderExtMoreTail();
+  else renderExtEndTail();
+}
+async function tgLoad(page){
+  const seq=++tgSeq;
+  if(!tgState)tgState={items:[],page:0,more:true,busy:false,failed:'',kw:''};
+  const st=tgState;
+  if(page<=1){st.items=[];st.page=0;st.more=true;st.failed='';}
+  if(st.busy&&page>1)return;
+  st.busy=true;
+  const body=$('extBody');
+  if(page<=1&&!st.items.length)body.innerHTML=emptyHint('加载中...');
+  try{
+    let d;
+    if(st.kw)d=await tgSearchPage(st.kw,page);
+    else d=await tgGet('/tg/list?tab='+tgTab+'&cat='+encodeURIComponent(tgCat)+'&sort='+tgSort+'&p='+page);
+    if(seq!==tgSeq)return;
+    const got=(d.items||[]).filter(x=>x&&x.id&&x.title&&!isBlocked(x.title));
+    const have={};
+    for(const v of st.items)have[v.id]=1;
+    const fresh=[];
+    for(const v of got)if(!have[v.id]){have[v.id]=1;st.items.push(v);fresh.push(v);}
+    st.page=page;
+    st.more=!!d.more;
+    if(page>1&&fresh.length){
+      const t1=document.getElementById('extMoreTail');if(t1)t1.remove();
+      const t2=document.getElementById('extMoreEnd');if(t2)t2.remove();
+      for(const v of fresh)tgCard(v);
+      if(st.more)renderExtMoreTail();else renderExtEndTail();
+    }else{
+      tgPaint();
+    }
+  }catch(e){
+    if(seq!==tgSeq)return;
+    st.failed=String(e&&e.message||e);
+    if(page>1){
+      const t3=document.getElementById('extMoreTail');
+      if(t3)t3.textContent='加载失败，点此重试';
+    }else tgPaint();
+  }finally{
+    if(seq===tgSeq)st.busy=false;
+  }
+}
+async function tgSearchPage(kw,p){
+  const d=await tgGet('/tg/search?kw='+encodeURIComponent(kw)+'&p='+p);
+  const items=[];
+  if(tgTab!=='m')for(const v of (d.videos||[]))items.push({type:'v',id:v.id,title:v.title,cover:v.cover});
+  if(tgTab!=='m')for(const v of (d.posts||[]))items.push({type:'p',id:v.id,title:v.title,cover:v.cover});
+  for(const v of (d.comics||[]))items.push({type:'m',id:v.id,title:v.title,cover:v.cover});
+  return {items:items,more:!!d.more};
+}
+function renderTgBody(){
+  const body=$('extBody');
+  extListMode=true;
+  $('extStatus').classList.add('hidden');
+  body.classList.remove('hidden');
+  $('externalView').setAttribute('data-theme','tg');
+  $('extTitle').textContent='天天热瓜';
+  renderTgTabs();
+  loadTgHome();
+  renderExtCats();
+  renderExtHot();
+  if(tgState&&tgState.items.length){tgPaint();return;}
+  if(tgState&&tgState.busy){body.innerHTML=emptyHint('加载中...');return;}
+  tgState={items:[],page:0,more:true,busy:false,failed:'',kw:''};
+  tgLoad(1);
+}
+async function openTgVideo(it){
+  if(extListMode)saveScroll('externalView');
+  extListMode=false;
+  extStatusHide();
+  extPlaying=null;
+  $('extTitle').textContent=it.title||'';
+  $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
+  try{
+    const d=await tgGet('/tg/detail?t='+(it.type||'v')+'&slug='+encodeURIComponent(it.id));
+    if(!d.m3u8)throw new Error('该内容没有视频源');
+    openExtPlay(RELAY_BASE+'/tg/hls?u='+encodeURIComponent(d.m3u8),d.name||it.title);
+  }catch(e){
+    $('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+' · <span id="tgRetryV" style="text-decoration:underline;cursor:pointer">重试</span></div>';
+    const b=$('tgRetryV');
+    if(b)b.addEventListener('click',()=>openTgVideo(it));
+  }
+}
+function openTgComic(it){
+  kpStop();
+  currentComic=null;currentAcg=null;
+  currentTg={id:it.id,name:it.title||it.name||'',cover:it.cover||''};
+  recordHistory('acg',{id:it.id,title:currentTg.name,cover:it.cover,cat:'热瓜',seg:'tgc',type:'c'});
+  tgChapters=[];tgChIdx=-1;loadedChapters=[];
+  readerTitle.textContent=currentTg.name;
+  readerList.innerHTML='<div class="loadingHint">加载章节...</div>';
+  $('chapterList').innerHTML='';
+  showView('readerView');
+  uiTgChapters();
+  loadTgComic(it);
+}
+async function loadTgComic(it){
+  try{
+    const slug=it.id||it.slug;
+    const d=await tgGet('/tg/detail?t=m&slug='+encodeURIComponent(slug));
+    currentTg={id:slug,name:d.name||it.title||'',cover:d.cover||it.cover||''};
+    recordHistory('acg',{id:slug,title:currentTg.name,cover:currentTg.cover,cat:'热瓜',seg:'tgc',type:'c'});
+    tgChapters=(d.chapters||[]).slice();
+    if(!tgChapters.length)throw new Error('该作品没有章节');
+    uiTgChapters();
+    const pos=posOf('g'+slug);
+    let idx=0;
+    if(pos&&pos.cid){
+      const f=tgChapters.findIndex(c=>String(c.id)===String(pos.cid));
+      if(f>=0)idx=f;
+    }
+    const pg=(pos&&String(pos.cid)===String(tgChapters[idx].id))?(pos.page||0):0;
+    await tgLoadChapter(idx,pg);
+  }catch(e){
+    readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
+  }
+}
+function uiTgChapters(){
+  const list=$('chapterList');
+  if(!list)return;
+  list.innerHTML='';
+  for(let i=0;i<tgChapters.length;i++){
+    const ch=tgChapters[i];
+    const btn=document.createElement('button');
+    btn.className='chapterItem'+(i===tgChIdx?' active':'');
+    btn.dataset.cid=ch.id;
+    btn.textContent=ch.title||('第'+(i+1)+'话');
+    btn.addEventListener('click',()=>{closeChapterPanel();tgLoadChapter(i,0);});
+    list.appendChild(btn);
+  }
+}
+function markTgChapter(){
+  const btns=document.querySelectorAll('#chapterList .chapterItem');
+  for(let i=0;i<btns.length;i++)btns[i].classList.toggle('active',i===tgChIdx);
+}
+async function tgFetchPages(ch){
+  const d=await tgGet('/tg/chapter?id='+encodeURIComponent(ch.id));
+  return d.pages||[];
+}
+async function tgLoadChapter(idx,restorePage){
+  const ch=tgChapters[idx];
+  if(!ch)return;
+  tgChIdx=idx;
+  loadedChapters=[];
+  readerList.innerHTML='<div class="loadingHint">加载中...</div>';
+  try{
+    const pages=await tgFetchPages(ch);
+    if(!pages.length)throw new Error('该章节无图片');
+    readerList.innerHTML='';
+    const div=document.createElement('div');
+    div.innerHTML='<div class="chapterDivider">'+esc(ch.title||('第'+(idx+1)+'话'))+'</div>';
+    const box=document.createElement('div');
+    div.appendChild(box);
+    readerList.appendChild(div);
+    const nm=(currentTg&&currentTg.name)||'';
+    let loaded=0;
+    for(const u of pages){
+      const img=document.createElement('img');
+      img.alt='';
+      box.appendChild(img);
+      setImg(img,RELAY_BASE+'/tg/img?u='+encodeURIComponent(u),()=>{
+        loaded++;
+        readerTitle.textContent=nm+' '+(loaded+'/'+pages.length);
+      });
+    }
+    loadedChapters.push({id:ch.id,name:ch.title,element:div,total:pages.length});
+    readerTitle.textContent=nm+' · '+(ch.title||'');
+    markTgChapter();
+    if(restorePage>0)restoreScrollTo(box,restorePage);
+    tgSavePos();
+  }catch(e){
+    readerList.innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';
+  }
+}
+async function tgAppendNext(){
+  if(loadingChapter)return;
+  const ch=tgChapters[tgChIdx+1];
+  if(!ch)return;
+  loadingChapter=true;
+  const hint=document.createElement('div');
+  hint.className='loadingHint';hint.textContent='加载下一章...';
+  readerList.appendChild(hint);
+  try{
+    const pages=await tgFetchPages(ch);
+    hint.remove();
+    if(!pages.length){loadingChapter=false;return;}
+    tgChIdx++;
+    const div=document.createElement('div');
+    div.innerHTML='<div class="chapterDivider">'+esc(ch.title||'')+'</div>';
+    const box=document.createElement('div');
+    div.appendChild(box);
+    readerList.appendChild(div);
+    for(const u of pages){
+      const img=document.createElement('img');img.alt='';
+      box.appendChild(img);setImg(img,RELAY_BASE+'/tg/img?u='+encodeURIComponent(u));
+    }
+    loadedChapters.push({id:ch.id,name:ch.title,element:div,total:pages.length});
+    readerTitle.textContent=((currentTg&&currentTg.name)||'')+' · '+(ch.title||'');
+    markTgChapter();
+  }catch(e){hint.textContent='加载失败';}
+  loadingChapter=false;
+}
+async function tgPrependPrev(){
+  if(loadingChapter)return;
+  const ch=tgChapters[tgChIdx-1];
+  if(!ch)return;
+  loadingChapter=true;
+  const hint=document.createElement('div');
+  hint.className='loadingHint';hint.textContent='加载上一章...';
+  readerList.prepend(hint);
+  try{
+    const pages=await tgFetchPages(ch);
+    hint.remove();
+    if(!pages.length){loadingChapter=false;return;}
+    tgChIdx--;
+    const oldH=readerList.scrollHeight;
+    const div=document.createElement('div');
+    div.innerHTML='<div class="chapterDivider">'+esc(ch.title||'')+'</div>';
+    const box=document.createElement('div');
+    div.appendChild(box);
+    const imgs=[];
+    for(const u of pages){
+      const img=document.createElement('img');img.alt='';
+      box.appendChild(img);imgs.push(img);setImg(img,RELAY_BASE+'/tg/img?u='+encodeURIComponent(u));
+    }
+    readerList.prepend(div);
+    loadedChapters.unshift({id:ch.id,name:ch.title,element:div,total:pages.length});
+    Promise.all(imgs.map(i=>new Promise(res=>{if(i.complete)res();else{i.onload=res;i.onerror=res;}}))).then(()=>{
+      requestAnimationFrame(()=>{const nh=readerList.scrollHeight;readerList.scrollTop=nh-oldH;});
+    });
+    readerTitle.textContent=((currentTg&&currentTg.name)||'')+' · '+(ch.title||'');
+    markTgChapter();
+  }catch(e){hint.textContent='加载失败';}
+  loadingChapter=false;
+}
+function setupTgReaderScroll(){
+  readerList.onscroll=()=>{
+    if(restoringPos)return;
+    if(!loadingChapter){
+      if(readerList.scrollTop+readerList.clientHeight>=readerList.scrollHeight-260)tgAppendNext();
+      if(readerList.scrollTop<10&&tgChIdx>0)tgPrependPrev();
+    }
+    tgSavePos();
+  };
+}
+function tgSavePos(force){
+  if(!currentTg||!readerList)return;
+  if(readerList.classList.contains('hidden'))return;
+  const run=()=>{
+    tgPosTimer=0;
+    if(!currentTg)return;
+    const rect=readerList.getBoundingClientRect();
+    if(rect.width===0||rect.height===0)return;
+    const imgs=readerList.querySelectorAll('img');
+    let page=0;
+    for(let i=0;i<imgs.length;i++){if(imgs[i].getBoundingClientRect().top-rect.top<=120)page=i;else break;}
+    const ch=tgChapters[tgChIdx];
+    setPos('g'+currentTg.id,{cid:ch?ch.id:'',name:ch?ch.title:'',page:page,ts:Date.now()});
+  };
+  if(force){if(tgPosTimer){clearTimeout(tgPosTimer);tgPosTimer=0;}run();return;}
+  if(tgPosTimer)return;
+  tgPosTimer=setTimeout(run,600);
+}
+
+const KJ_BUILD='v19';
 console.log('KJ build '+KJ_BUILD);
 function renderExternal(){extListMode=true;renderExternalBody();restoreScrollSoon('externalView');}
 function renderExternalBody(){
+  if(tgMode){renderTgBody();return;}
+  const _ttr=$('tgTabRow');if(_ttr)_ttr.classList.add('hidden');
   const body=$('extBody');
   $('extStatus').classList.add('hidden');
   body.classList.remove('hidden');
@@ -2208,7 +2613,9 @@ async function openExtPlay(hlsUrl,title){
 document.querySelectorAll('.extSeg').forEach(b=>{
   b.addEventListener('click',()=>{
     extSection=parseInt(b.dataset.seg);
+    tgMode=(extSection===3);
     extCat=null;extRemote=null;extKwRemote=null;extKw='';extSeq++;
+    if(tgMode){tgCat='0';tgState=null;tgSeq++;}
     const _si=$('extSearchInput');if(_si)_si.value='';
     document.querySelectorAll('.extSeg').forEach(x=>x.classList.toggle('active',x===b));
     extListMode=true;resetExtScroll();
@@ -2222,6 +2629,12 @@ $('extBack').addEventListener('click',()=>{
 });
 function extDoSearch(){
   extListMode=true;resetExtScroll();
+  if(tgMode){
+    const tv=($('extSearchInput').value||'').trim();
+    tgState={items:[],page:0,more:true,busy:false,failed:'',kw:tv};
+    tgSeq++;tgLoad(1);
+    return;
+  }
   const v=($('extSearchInput').value||'').trim();
   if(extSection!==1){extKw=v.toLowerCase();renderExternal();return;}
   if(!v){extKwRemote=null;extKw='';extCat=null;extRemote=null;extSeq++;renderExternal();return;}
@@ -2232,6 +2645,7 @@ function extDoSearch(){
   renderExternal();
 }
 $('extSearchInput').addEventListener('input',()=>{
+  if(tgMode){extListMode=true;resetExtScroll();return;}
   extListMode=true;resetExtScroll();
   const v=$('extSearchInput').value.trim();
   extKw=v.toLowerCase();
@@ -2244,6 +2658,11 @@ $('extSearchInput').addEventListener('input',()=>{
 $('extSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();extDoSearch();}});
 (function(){const sb=$('extSearchBtn');if(sb)sb.addEventListener('click',extDoSearch);})();
 $('extBody').addEventListener('scroll',()=>{
+  if(tgMode){
+    const el0=$('extBody');
+    if(tgState&&tgState.more&&!tgState.busy&&el0.scrollTop+el0.clientHeight>=el0.scrollHeight-320)tgLoad(tgState.page+1);
+    return;
+  }
   if(Date.now()<scrollGuardUntil)return;
   const el=$('extBody');
   if(!extRemote||!extRemote.more||extRemote.busy)return;
@@ -2300,7 +2719,7 @@ function applyRoute(){
     else{switchMode(n);if(currentViewId()!=='mainView')showView('mainView');}
     return;
   }
-  if((m=/^#\/([cvfndxea])\/([^?]+)(?:\?(.*))?$/.exec(h))){
+  if((m=/^#\/([cvfndxeat])\/([^?]+)(?:\?(.*))?$/.exec(h))){
     let id=m[2];try{id=decodeURIComponent(id);}catch(e){}
     const q=parseQS(m[3]||'');
     openFromRoute(m[1],id,q.n||'',q);
@@ -2309,6 +2728,12 @@ function applyRoute(){
   switchMode(0);
 }
 function openFromRoute(k,id,name,q){
+  if(k==='t'){
+    tgActivate();
+    if($('externalView').classList.contains('hidden')){extListMode=false;showView('externalView');}
+    tgOpen({id:id,title:name,type:(q&&q.k)||'v'});
+    return;
+  }
   if(k==='a'){
     const seg=(q&&q.s)||'h';
     openAcgComic({id:id,title:name,seg:seg,type:(seg==='gif'?'v':'c')});
@@ -2331,7 +2756,7 @@ if('serviceWorker' in navigator){
 }
 (function boot(){
   const h=location.hash||'';
-  if(/^#\/([cvfndxea])\//.test(h)){
+  if(/^#\/([cvfndxeat])\//.test(h)){
     const q=parseQS(h.indexOf('?')>=0?h.slice(h.indexOf('?')+1):'');
     const parent=(q.b==='ext')?'#/ext':('#/m/'+((q.b!==undefined&&q.b!=='')?q.b:'0'));
     try{history.replaceState({kjBase:1},' ',parent);history.pushState({kjDetail:1},' ',h);}catch(e){}

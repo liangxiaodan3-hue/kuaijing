@@ -194,6 +194,16 @@ a.card, a.extCard { display:block; color:inherit; text-decoration:none; }
 .extName { font-size:13px; line-height:1.4; margin-top:6px; color:var(--text); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .extCard.novel .extNovelBox { width:100%; min-height:120px; border-radius:12px; padding:16px 12px; background:linear-gradient(135deg,#2A2210,#15151A); border:1px solid #3a3a3a; color:#F4F6F9; font-size:14px; line-height:1.6; text-align:center; word-break:break-all; }
 
+/* ===== 天天热瓜 主题 ===== */
+#externalView[data-theme="tg"]{
+  --bg:#0D0B0A; --surface:#161311; --surface2:#241E1A; --border:#332A24;
+  --text:#F7F1EA; --text2:#A89A8E;
+  --accent:#FF6B2C; --vip:#FF6B2C;
+}
+#externalView[data-theme="tg"] #extBody { grid-template-columns:repeat(2,1fr); gap:10px; }
+#externalView[data-theme="tg"] #extSegBar { background:var(--surface); }
+#chapterList .chapterItem.active { outline:1px solid var(--accent); }
+
 /* ===== comic preload badge ===== */
 #readerBadge { display:none; font-size:11px; line-height:1.4; color:var(--text2); background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:2px 8px; white-space:nowrap; flex:none; }
 #readerBadge.on { display:inline-block; }
