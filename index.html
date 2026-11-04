@@ -14,7 +14,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/favicon.png">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <div id="app">
@@ -52,6 +52,21 @@
       <button id="readerCatalog">目录</button>
     </div>
     <div id="readerList"></div>
+    <div id="rotPanel" class="hidden">
+      <div id="rotPanelRow">
+        <span class="rotLabel">角度</span>
+        <input id="rotRange" type="range" min="0" max="359" step="1" value="0">
+        <b id="rotVal">0°</b>
+      </div>
+      <div id="rotPresets">
+        <button data-r="0">0°</button>
+        <button data-r="90">90°</button>
+        <button data-r="180">180°</button>
+        <button data-r="270">270°</button>
+        <button data-d="-15">-15°</button>
+        <button data-d="15">+15°</button>
+      </div>
+    </div>
     <div id="chapterPanel" class="hidden">
       <div id="chapterPanelHeader">
         <span>章节目录</span>
@@ -124,7 +139,7 @@
   </div>
   <div id="toast" class="hidden"></div>
 </div>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
 

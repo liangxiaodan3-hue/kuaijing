@@ -70,6 +70,16 @@ a.card, a.extCard { display:block; color:inherit; text-decoration:none; }
 #readerView.rot180 { transform:rotate(180deg); }
 #readerView.landscape.rot270 { transform:translate(-50%,-50%) rotate(270deg); }
 #readerView.landscape #readerList { overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; }
+#readerView.rotfree { transform:rotate(var(--deg,0deg)) scale(var(--fit,1)); transform-origin:center center; }
+#readerView.rotfree #readerList { overflow-x:auto; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+#rotPanel { position:absolute; top:calc(env(safe-area-inset-top) + 52px); right:8px; z-index:340; width:250px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px 12px; box-shadow:0 12px 34px rgba(0,0,0,.55); }
+#rotPanelRow { display:flex; align-items:center; gap:8px; }
+#rotPanelRow .rotLabel { font-size:12px; color:var(--text2); }
+#rotRange { flex:1; accent-color:var(--accent); }
+#rotVal { font-size:12px; min-width:38px; text-align:right; color:var(--text); }
+#rotPresets { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+#rotPresets button { flex:1 0 30%; font-size:12px; padding:6px 0; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); }
+#rotPresets button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
 .chapterDivider { text-align:center; padding:14px 0; color:var(--text2); font-size:13px; background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin:0; }
 #readerList .loadingHint { text-align:center; padding:20px; color:var(--text2); font-size:13px; }
 

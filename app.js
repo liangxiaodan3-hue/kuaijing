@@ -1031,20 +1031,55 @@ async function getChapterPages(ch,opts){
 }
 let readerLandscape=false;
 let readerDeg=0;
+try{readerDeg=parseInt(localStorage.getItem('kj-rot')||'0',10)||0;}catch(e){readerDeg=0;}
 function closeChapterPanel(){$('chapterPanel').classList.add('hidden');}
 function openChapterPanel(){$('chapterPanel').classList.remove('hidden');}
 $('readerCatalog').addEventListener('click',()=>{const p=$('chapterPanel');if(p.classList.contains('hidden'))openChapterPanel();else closeChapterPanel();});
 $('chapterPanelClose').addEventListener('click',closeChapterPanel);
+function closeRotPanel(){const p=$('rotPanel');if(p)p.classList.add('hidden');toggleRotPanel(false);}
+function toggleRotPanel(on){
+  const p=$('rotPanel');if(!p)return;
+  const show=(on===undefined)?p.classList.contains('hidden'):on;
+  if(show)p.classList.remove('hidden');else p.classList.add('hidden');
+}
 function applyReaderDeg(){
   const rv=$('readerView');
-  rv.classList.remove('landscape','rot180','rot270');
-  if(readerDeg===90)rv.classList.add('landscape');
-  else if(readerDeg===180)rv.classList.add('rot180');
-  else if(readerDeg===270)rv.classList.add('landscape','rot270');
-  $('readerRotate').textContent=readerDeg?('旋转 '+readerDeg+'°'):'旋转';
+  const d=((readerDeg%360)+360)%360;
+  readerDeg=d;
+  rv.classList.remove('landscape','rot180','rot270','rotfree');
+  rv.style.removeProperty('--deg');rv.style.removeProperty('--fit');
+  if(d===90||d===270){rv.classList.add('landscape');if(d===270)rv.classList.add('rot270');}
+  else if(d===180)rv.classList.add('rot180');
+  else if(d!==0){
+    rv.classList.add('rotfree');
+    const w=rv.clientWidth||window.innerWidth,h=rv.clientHeight||window.innerHeight;
+    const r=d*Math.PI/180;
+    const W=Math.abs(w*Math.cos(r))+Math.abs(h*Math.sin(r));
+    const H=Math.abs(w*Math.sin(r))+Math.abs(h*Math.cos(r));
+    rv.style.setProperty('--deg',d+'deg');
+    rv.style.setProperty('--fit',String(Math.min(w/W,h/H).toFixed(3)));
+  }
+  const lbl=$('readerRotate');if(lbl)lbl.textContent=d?('旋转 '+d+'°'):'旋转';
+  const rg=$('rotRange');if(rg)rg.value=String(d);
+  const rv2=$('rotVal');if(rv2)rv2.textContent=d+'°';
+  const btns=document.querySelectorAll('#rotPresets button');
+  for(let i=0;i<btns.length;i++)btns[i].classList.toggle('active',btns[i].dataset.r===String(d));
+  try{localStorage.setItem('kj-rot',String(d));}catch(e){}
 }
-$('readerRotate').addEventListener('click',()=>{readerDeg=(readerDeg+90)%360;applyReaderDeg();});
-$('readerBack').addEventListener('click',()=>{if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();goBack(()=>showView('mainView'));});
+$('readerRotate').addEventListener('click',()=>toggleRotPanel());
+$('rotRange').addEventListener('input',e=>{readerDeg=parseInt(e.target.value,10)||0;applyReaderDeg();});
+(function(){
+  const ps=document.querySelectorAll('#rotPresets button');
+  for(let i=0;i<ps.length;i++)ps[i].addEventListener('click',()=>{
+    const b=ps[i];
+    if(b.dataset.r!==undefined)readerDeg=parseInt(b.dataset.r,10)||0;
+    else readerDeg=((readerDeg+parseInt(b.dataset.d,10))%360+360)%360;
+    applyReaderDeg();
+  });
+})();
+window.addEventListener('resize',()=>{if(readerDeg&&readerDeg%90!==0)applyReaderDeg();});
+try{applyReaderDeg();}catch(e){}
+$('readerBack').addEventListener('click',()=>{closeRotPanel();if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();goBack(()=>showView('mainView'));});
 /* ===== comic page cache (persist) + preload ===== */
 const KP_CACHE='kj-comic-pages-v1';
 const KP_IDX_URL='https://kuaijing.local/kj-comic-index-v1';
