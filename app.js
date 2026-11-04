@@ -1407,7 +1407,8 @@ async function openVod(v){
     if(!m3u8)throw new Error('获取播放地址失败');
     playerStatus.textContent='';
     const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.userAgent.indexOf('Mac')>=0&&navigator.maxTouchPoints>1);
-    const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl')||videoEl.canPlayType('application/x-mpegURL')||isApple;
+    // Chrome/Edge 对 apple.mpegurl 会返回 "maybe" 但实际放不了 HLS, 只信 Safari/iOS
+    const canNative=isApple;
     if(canNative){
       videoEl.src=m3u8;
       videoEl.play().catch(()=>{});
