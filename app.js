@@ -2611,7 +2611,10 @@ async function plPlay(hlsUrl){
     const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.userAgent.indexOf('Mac')>=0&&navigator.maxTouchPoints>1);
     const canNative=videoEl.canPlayType('application/vnd.apple.mpegurl')||videoEl.canPlayType('application/x-mpegURL')||isApple;
     if(canNative){
-      videoEl.src=hlsUrl;
+      // iOS/Safari 原生 HLS 只认 .m3u8 后缀, worker 侧有同名别名路由
+      let nsrc=hlsUrl;
+      if(/\/hls\?/.test(nsrc))nsrc=nsrc.replace('/hls?','/hls.m3u8?');
+      videoEl.src=nsrc;
       videoEl.play().catch(()=>{});
       return;
     }
