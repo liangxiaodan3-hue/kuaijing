@@ -14,7 +14,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/favicon.png">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <div id="app">
@@ -53,6 +53,19 @@
     </div>
     <div id="readerList"></div>
     <div id="rotPanel" class="hidden">
+      <div id="rotPanelRow">
+        <span class="rotLabel">缩放</span>
+        <input id="zoomRange" type="range" min="40" max="150" step="5" value="100">
+        <b id="zoomVal">100%</b>
+      </div>
+      <div id="zoomPresets">
+        <button data-z="60">60%</button>
+        <button data-z="80">80%</button>
+        <button data-z="100">100%</button>
+        <button data-z="120">120%</button>
+        <button data-d="-10">−</button>
+        <button data-d="10">＋</button>
+      </div>
       <div id="rotPanelRow">
         <span class="rotLabel">角度</span>
         <input id="rotRange" type="range" min="0" max="359" step="1" value="0">
@@ -139,7 +152,7 @@
   </div>
   <div id="toast" class="hidden"></div>
 </div>
-<script src="app.js?v=24"></script>
+<script src="app.js?v=25"></script>
 </body>
 </html>
 
