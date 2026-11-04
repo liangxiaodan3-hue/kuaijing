@@ -1799,7 +1799,7 @@ function renderExtCats(){
     row.appendChild(b);
   };
   if(tgMode){
-    const cats=(tgHomeCache&&tgHomeCache.cats)||[];
+    const cats=tgCats[tgTab]||[];
     mk('全部','0',tgCat==='0');
     for(const c of cats)mk(c.label,c.id,String(c.id)===String(tgCat));
     return;
@@ -1988,6 +1988,7 @@ async function extRemoteNext(seq){
 /* ===== ttrgw (天天热瓜) 第五源 ===== */
 let tgMode=false, tgTab='v', tgCat='0', tgSort='1';
 let tgState=null, tgHomeCache=null, tgHomeP=null, tgSeq=0;
+let tgCats={v:[],m:[],p:[]};
 let currentTg=null, tgChapters=[], tgChIdx=-1, tgPosTimer=0;
 const TG_TABS=[['v','视频'],['m','漫画'],['p','八卦']];
 async function tgGet(p){
@@ -2006,6 +2007,9 @@ function loadTgHome(){
   if(tgHomeP)return tgHomeP;
   tgHomeP=tgGet('/tg/home').then(d=>{
     tgHomeCache=d||{cats:[],hot:[]};
+    if(d&&d.catsV&&d.catsV.length)tgCats.v=d.catsV;
+    if(d&&d.catsM&&d.catsM.length)tgCats.m=d.catsM;
+    if(d&&d.cats&&d.cats.length)tgCats.p=d.cats;
     if(tgMode){renderExtCats();renderExtHot();}
     return tgHomeCache;
   }).catch(()=>{tgHomeP=null;tgHomeCache={cats:[],hot:[]};return tgHomeCache;});
@@ -2089,6 +2093,7 @@ async function tgLoad(page){
     if(st.kw)d=await tgSearchPage(st.kw,page);
     else d=await tgGet('/tg/list?tab='+tgTab+'&cat='+encodeURIComponent(tgCat)+'&sort='+tgSort+'&p='+page);
     if(seq!==tgSeq)return;
+    if(d.cats&&d.cats.length){tgCats[tgTab]=d.cats;if(page<=1)renderExtCats();}
     const got=(d.items||[]).filter(x=>x&&x.id&&x.title&&!isBlocked(x.title));
     const have={};
     for(const v of st.items)have[v.id]=1;
