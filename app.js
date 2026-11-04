@@ -1072,7 +1072,7 @@ function applyReaderDeg(){
     rv.style.setProperty('--deg',d+'deg');
     rv.style.setProperty('--fit',String(Math.min(w/W,h/H).toFixed(3)));
   }
-  const lbl=$('readerRotate');if(lbl)lbl.textContent=d?('旋转 '+d+'°'):'旋转';
+  const lbl=$('readerRotate');if(lbl)lbl.textContent=d?('显示 '+d+'°'):'显示';
   const rg=$('rotRange');if(rg)rg.value=String(d);
   const rv2=$('rotVal');if(rv2)rv2.textContent=d+'°';
   const btns=document.querySelectorAll('#rotPresets button');
