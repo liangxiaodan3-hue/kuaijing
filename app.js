@@ -1155,7 +1155,7 @@ $('zoomRange').addEventListener('input',e=>{readerZoom=parseInt(e.target.value,1
 window.addEventListener('resize',()=>{if(readerDeg&&readerDeg%90!==0)applyReaderDeg();});
 try{applyReaderDeg();}catch(e){}
 try{applyReaderZoom();}catch(e){}
-$('readerBack').addEventListener('click',()=>{closeRotPanel();if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();goBack(()=>showView('mainView'));});
+$('readerBack').addEventListener('click',()=>{closeRotPanel();if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();goBack(()=>{if(tgMode){extListMode=true;showView('externalView');renderExternal();}else showView('mainView');});});
 /* ===== comic page cache (persist) + preload ===== */
 const KP_CACHE='kj-comic-pages-v1';
 const KP_IDX_URL='https://kuaijing.local/kj-comic-index-v1';
@@ -2857,6 +2857,8 @@ function openFromRoute(k,id,name,q){
   }
   if(k==='a'){
     const seg=(q&&q.s)||'h';
+    // 深链/历史进来的热瓜漫画: 先把外站切到热瓜-漫画, 返回时才是对的列表
+    if(seg==='tgc'){tgActivate();tgTab='m';tgCat='0';tgState=null;tgSeq++;try{syncHash('#/ext');}catch(e){}}
     openAcgComic({id:id,title:name,seg:seg,type:(seg==='gif'?'v':'c')});
     return;
   }
