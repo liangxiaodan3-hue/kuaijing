@@ -2112,6 +2112,8 @@ async function tgGet(p){
 }
 function tgActivate(){
   tgMode=true;extSection=3;
+  try{const t=sessionStorage.getItem('kj-tgtab');if(t==='m'||t==='p'||t==='v')tgTab=t;}catch(e){}
+  try{syncHash('#/ext/tg');}catch(e){}
   document.querySelectorAll('.extSeg').forEach(x=>x.classList.toggle('active',x.dataset.seg==='3'));
 }
 function loadTgHome(){
@@ -2139,6 +2141,7 @@ function renderTgTabs(){
     b.addEventListener('click',()=>{
       if(tgTab===kv[0])return;
       tgTab=kv[0];tgCat='0';
+      try{sessionStorage.setItem('kj-tgtab',tgTab);}catch(e){}
       tgState={items:[],page:0,more:true,busy:false,failed:'',kw:''};
       tgSeq++;tgLoad(1);
     });
@@ -2735,6 +2738,7 @@ document.querySelectorAll('.extSeg').forEach(b=>{
   b.addEventListener('click',()=>{
     extSection=parseInt(b.dataset.seg);
     tgMode=(extSection===3);
+    try{syncHash(tgMode?'#/ext/tg':'#/ext');}catch(e){}
     extCat=null;extRemote=null;extKwRemote=null;extKw='';extSeq++;
     if(tgMode){tgCat='0';tgState=null;tgSeq++;}
     const _si=$('extSearchInput');if(_si)_si.value='';
@@ -2833,7 +2837,8 @@ function syncHash(target){
 function applyRoute(){
   const h=location.hash||'';
   let m;
-  if(h==='#/ext'){extListMode=true;openExternal();return;}
+  if(h==='#/ext/tg'){tgActivate();extListMode=true;openExternal();return;}
+  if(h==='#/ext'){tgMode=false;extListMode=true;openExternal();return;}
   if((m=/^#\/m\/(\d+)$/.exec(h))){
     const n=parseInt(m[1]);
     if(n===mode&&grid.children.length>0){showView('mainView');restoreScrollSoon('mainView');}
@@ -2881,7 +2886,7 @@ if('serviceWorker' in navigator){
   const h=location.hash||'';
   if(/^#\/([cvfndxeat])\//.test(h)){
     const q=parseQS(h.indexOf('?')>=0?h.slice(h.indexOf('?')+1):'');
-    const parent=(q.b==='ext')?'#/ext':('#/m/'+((q.b!==undefined&&q.b!=='')?q.b:'0'));
+    const parent=(q.b==='ext')?((q.s==='tgc')?'#/ext/tg':'#/ext'):('#/m/'+((q.b!==undefined&&q.b!=='')?q.b:'0'));
     try{history.replaceState({kjBase:1},' ',parent);history.pushState({kjDetail:1},' ',h);}catch(e){}
     applyRoute();
     return;
