@@ -1110,6 +1110,39 @@ $('zoomRange').addEventListener('input',e=>{readerZoom=parseInt(e.target.value,1
   },{passive:true});
   list.addEventListener('touchend',()=>{pinch0=0;});
 })();
+/* 90/270 横屏: 手指往右 = 下一屏 (页面本身顺时针转了90度) */
+(function(){
+  const list=$('readerList');
+  if(!list)return;
+  const isLand=()=>$('readerView').classList.contains('landscape');
+  const step=()=>Math.max(160,list.clientHeight*0.94);
+  let sx=0,sy=0,active=false;
+  list.addEventListener('touchstart',e=>{
+    if(!isLand()||e.touches.length!==1){active=false;return;}
+    active=true;sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+  },{passive:true});
+  list.addEventListener('touchmove',e=>{
+    if(!active||e.touches.length!==1)return;
+    const dx=e.touches[0].clientX-sx;
+    const dy=e.touches[0].clientY-sy;
+    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>8){try{e.preventDefault();}catch(err){}}
+  },{passive:false});
+  list.addEventListener('touchend',e=>{
+    if(!active)return;
+    active=false;
+    const t=(e.changedTouches&&e.changedTouches[0])||null;
+    if(!t)return;
+    const dx=t.clientX-sx,dy=t.clientY-sy;
+    if(Math.abs(dx)<45||Math.abs(dx)<Math.abs(dy))return;
+    list.scrollTo({top:list.scrollTop+(dx>0?step():-step()),behavior:'smooth'});
+  },{passive:true});
+  list.addEventListener('wheel',e=>{
+    if(!isLand()||e.ctrlKey||e.metaKey)return;
+    if(Math.abs(e.deltaY)<2)return;
+    e.preventDefault();
+    list.scrollTo({top:list.scrollTop+(e.deltaY>0?step():-step()),behavior:'smooth'});
+  },{passive:false});
+})();
 (function(){
   const ps=document.querySelectorAll('#rotPresets button');
   for(let i=0;i<ps.length;i++)ps[i].addEventListener('click',()=>{
