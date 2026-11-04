@@ -194,6 +194,10 @@ const RELAY_BASE='https://kuaijing.liangxiaodan3.workers.dev';
 let extSection=0,extKw='',extLoaded=false,extData=null;
 let playerReturn='mainView';
 let extPlaying=null; // {id,name,episodes:[],idx} 短剧播放上下文
+/* ===== view scroll memory ===== */
+const KJ_VIEWS=['mainView','readerView','playerView','forumView','novelView','externalView'];
+const VIEW_SCROLL={mainView:0,externalView:0};
+let scrollGuardUntil=0,lastTabMode=0,extListMode=true;
 const $=id=>document.getElementById(id);
 const grid=$('grid'),loadMore=$('loadMore'),searchInput=$('searchInput');
 const catPanel=$('catPanel'),hotChips=$('hotChips'),catClassChips=$('catClassChips'),catTagChips=$('catTagChips'),catChildChips=$('catChildChips');
@@ -215,6 +219,7 @@ document.querySelectorAll('.tab').forEach(btn=>{
 });
 function switchMode(m){
   mode=m;
+  if(m!==5)lastTabMode=m;
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.mode)===m));
   searchInput.value='';
   catPanel.classList.add('hidden');catPanelOpen=false;
@@ -225,6 +230,8 @@ function switchMode(m){
   comicCid='';comicTid='';vodType='';vodPid='';forumBid='';novelCid='';novelTid='';
   grid.innerHTML='';
   loadMore.classList.add('hidden');
+  resetMainScroll();
+  syncHash(mode===5?'#/ext':'#/m/'+mode);
   if(mode===5){openExternal();return;}
   if(mode===4){renderHistory();return;}
   reloadCats();
@@ -460,33 +467,48 @@ function renderItems(items){
   }
 }
 function renderComicCard(c){
-  const div=document.createElement('div');
+  const div=document.createElement('a');
   div.className='card';
+  div.href=mkHref('c',c.id,c.name,0);
   const coverUrl=resolveImgUrl(c.pic);
   div.innerHTML='<div class="cover"><span>\uD83D\uDCD6</span>'+(c.pay===2?'<span class="badge">VIP</span>':'')+'</div>'+
     '<div class="info"><div class="name">'+esc(c.name)+'</div><div class="sub">'+(c.latest_chapter_name?'更新至 '+esc(c.latest_chapter_name):'连载中')+'</div></div>';
-  div.addEventListener('click',()=>openComic(c));
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openComic(c));
+  });
   grid.appendChild(div);
   if(coverUrl)lazyImg(div.querySelector('.cover'),coverUrl);
 }
 function renderVodCard(v){
-  const div=document.createElement('div');
+  const div=document.createElement('a');
   div.className='card';
+  div.href=mkHref('v',v.vod_id,v.vod_name,1);
   const coverUrl=resolveImgUrl(v.vod_pic);
   const hd=v.vod_mode?'HD':'';
   div.innerHTML='<div class="cover"><span>\uD83C\uDFAC</span>'+(hd?'<span class="badge">'+hd+'</span>':'')+(v.vod_duration?'<span class="dur">'+esc(v.vod_duration)+'</span>':'')+'</div>'+
     '<div class="info"><div class="name">'+esc(v.vod_name)+'</div><div class="sub">'+(v.vod_duration?'时长 '+esc(v.vod_duration):'')+'</div></div>';
-  div.addEventListener('click',()=>openVod(v));
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openVod(v));
+  });
   grid.appendChild(div);
   if(coverUrl)lazyImg(div.querySelector('.cover'),coverUrl);
 }
 function renderForumCard(f){
-  const div=document.createElement('div');
+  const div=document.createElement('a');
   div.className='card';
+  div.href=mkHref('f',f.id,f.title,2);
   const coverUrl=f.cover?resolveImgUrl(f.cover):null;
   div.innerHTML='<div class="cover"><span>\uD83D\uDCAC</span></div>'+
     '<div class="info"><div class="name">'+esc(f.title)+'</div><div class="sub">'+esc(f.boardName)+' · '+f.hits+'阅</div></div>';
-  div.addEventListener('click',()=>openForum(f));
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openForum(f));
+  });
   grid.appendChild(div);
   if(coverUrl)lazyImg(div.querySelector('.cover'),coverUrl);
 }
@@ -505,6 +527,7 @@ function lazyImg(container,url){
 }
 /* ===== infinite scroll ===== */
 function onInfiniteScroll(){
+  if(Date.now()<scrollGuardUntil)return;
   if($('mainView').classList.contains('hidden'))return;
   if(mode===4)return;
   if(loading)return;
@@ -784,7 +807,7 @@ function applyReaderDeg(){
   $('readerRotate').textContent=readerDeg?('旋转 '+readerDeg+'°'):'旋转';
 }
 $('readerRotate').addEventListener('click',()=>{readerDeg=(readerDeg+90)%360;applyReaderDeg();});
-$('readerBack').addEventListener('click',()=>{if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();showView('mainView');});
+$('readerBack').addEventListener('click',()=>{if(readerDeg){readerDeg=0;applyReaderDeg();}closeChapterPanel();goBack(()=>showView('mainView'));});
 /* ===== comic page cache (persist) + preload ===== */
 const KP_CACHE='kj-comic-pages-v1';
 const KP_IDX_URL='https://kuaijing.local/kj-comic-index-v1';
@@ -947,12 +970,17 @@ kpWarmIndex();
 function novelBlocked(name){return nameBlocked(name)||hotBad(name);}
 function formatTextNum(n){n=parseInt(n)||0;if(n>=10000)return (n/10000).toFixed(1)+'万';return String(n);}
 function renderNovelCard(b){
-  const div=document.createElement('div');
+  const div=document.createElement('a');
   div.className='card';
+  div.href=mkHref('n',b.id,b.name,3);
   const coverUrl=resolveImgUrl(b.pic);
   div.innerHTML='<div class="cover"><span>\uD83D\uDCDA</span>'+(b.pay!==0?'<span class="badge">VIP</span>':'')+'</div>'+
     '<div class="info"><div class="name">'+esc(b.name)+'</div><div class="sub">'+esc(b.author||'无名')+' · '+formatTextNum(b.text_num)+'字</div></div>';
-  div.addEventListener('click',()=>openNovel(b));
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openNovel(b));
+  });
   grid.appendChild(div);
   if(coverUrl)lazyImg(div.querySelector('.cover'),coverUrl);
 }
@@ -1058,7 +1086,7 @@ function novelNavBar(){
 }
 function closeNovelChapterPanel(){$('novelChapterPanel').classList.add('hidden');}
 function openNovelChapterPanel(){$('novelChapterPanel').classList.remove('hidden');}
-$('novelBack').addEventListener('click',()=>{closeNovelChapterPanel();showView('mainView');});
+$('novelBack').addEventListener('click',()=>{closeNovelChapterPanel();goBack(()=>showView('mainView'));});
 $('novelCatalog').addEventListener('click',()=>{const p=$('novelChapterPanel');if(p.classList.contains('hidden'))openNovelChapterPanel();else closeNovelChapterPanel();});
 $('novelChapterPanelClose').addEventListener('click',closeNovelChapterPanel);
 
@@ -1131,7 +1159,12 @@ $('playerBack').addEventListener('click',()=>{
   plSetNavVisible(false);
   if(videoEl._hls){videoEl._hls.destroy();videoEl._hls=null;}
   videoEl.pause();videoEl.src='';
-  showView(playerReturn);
+  if(playerReturn==='externalView'){
+    extListMode=true;
+    goBack(()=>{renderExternal();showView('externalView');});
+  }else{
+    goBack(()=>showView('mainView'));
+  }
 });
 /* ===== forum detail ===== */
 async function openForum(f){
@@ -1173,15 +1206,59 @@ async function openForum(f){
     forumBody.innerHTML='<div style="text-align:center;padding:40px;color:var(--text2)">加载失败: '+esc(e.message)+'</div>';
   }
 }
-$('forumBack').addEventListener('click',()=>showView('mainView'));
+$('forumBack').addEventListener('click',()=>goBack(()=>showView('mainView')));
+/* ===== view scroll memory ===== */
+function currentViewId(){
+  for(const v of KJ_VIEWS){const el=$(v);if(el&&!el.classList.contains('hidden'))return v;}
+  return 'mainView';
+}
+function saveScroll(id){
+  if(id==='mainView'){
+    const se=document.scrollingElement||document.documentElement;
+    VIEW_SCROLL.mainView=se?(se.scrollTop||0):0;
+  }else if(id==='externalView'){
+    if(!extListMode)return;
+    const b=$('extBody');if(b)VIEW_SCROLL.externalView=b.scrollTop||0;
+  }
+}
+function applyScroll(id){
+  if(id==='mainView'){
+    const y=VIEW_SCROLL.mainView||0;
+    const se=document.scrollingElement||document.documentElement;
+    if(se)se.scrollTop=y;
+    window.scrollTo(0,y);
+  }else if(id==='externalView'){
+    const b=$('extBody');if(b)b.scrollTop=VIEW_SCROLL.externalView||0;
+  }
+}
+function restoreScrollSoon(id){
+  if(id!=='mainView'&&id!=='externalView')return;
+  scrollGuardUntil=Date.now()+1200;
+  applyScroll(id);
+  requestAnimationFrame(()=>applyScroll(id));
+  setTimeout(()=>applyScroll(id),90);
+  setTimeout(()=>applyScroll(id),280);
+}
+function resetMainScroll(){
+  VIEW_SCROLL.mainView=0;
+  const se=document.scrollingElement||document.documentElement;
+  if(se)se.scrollTop=0;
+  window.scrollTo(0,0);
+}
+function resetExtScroll(){
+  VIEW_SCROLL.externalView=0;
+  const b=$('extBody');if(b)b.scrollTop=0;
+}
 /* ===== view switching ===== */
 function showView(id){
+  const prev=currentViewId();
+  if(prev!==id)saveScroll(prev);
   if(id!=='readerView')doSaveReaderPos(true);
-  ['mainView','readerView','playerView','forumView','novelView','externalView'].forEach(v=>{
+  KJ_VIEWS.forEach(v=>{
     $(v).classList.toggle('hidden',v!==id);
   });
   if(id!=='readerView')kpStop();
-  if(id==='mainView')window.scrollTo(0,0);
+  restoreScrollSoon(id);
 }
 /* ===== reading position ===== */
 const POS_KEY='kj_pos_v1';
@@ -1267,15 +1344,20 @@ function renderHistory(){
     const pic=e.type==='vod'?it.vod_pic:it.pic;
     let sub=e.type==='vod'?(it.vod_duration?('时长 '+it.vod_duration):''):(it.latest_chapter_name?('更新至 '+it.latest_chapter_name):'');
     if(e.type==='comic'){const p=posOf(it.id);if(p&&p.name)sub='读到 '+p.name+(it.latest_chapter_name?' · 更新至 '+it.latest_chapter_name:'');}
-    const div=document.createElement('div');
+    const div=document.createElement('a');
     div.className='card';
+    div.href=e.type==='comic'?mkHref('c',it.id,it.name,4):e.type==='vod'?mkHref('v',it.vod_id,it.vod_name,4):mkHref('n',it.id,it.name,4);
     const coverUrl=resolveImgUrl(pic);
     div.innerHTML='<div class="cover"><span>'+labels[e.type]+'</span></div>'+
       '<div class="info"><div class="name">'+esc(name||'')+'</div><div class="sub">'+esc(sub)+'</div></div>';
-    div.addEventListener('click',()=>{
-      if(e.type==='comic')openComic(it);
-      else if(e.type==='vod')openVod(it);
-      else openNovel(it);
+    div.addEventListener('click',ev=>{
+      if(ev.metaKey||ev.ctrlKey||ev.shiftKey||ev.altKey||ev.button!==0)return;
+      ev.preventDefault();
+      navTo(div.getAttribute('href'),()=>{
+        if(e.type==='comic')openComic(it);
+        else if(e.type==='vod')openVod(it);
+        else openNovel(it);
+      });
     });
     grid.appendChild(div);
     if(coverUrl)lazyImg(div.querySelector('.cover'),coverUrl);
@@ -1417,6 +1499,7 @@ function extPickCat(c){
   extKw='';
   const inp=$('extSearchInput');
   if(inp)inp.value='';
+  extListMode=true;resetExtScroll();
   renderExternal();
 }
 function extSortCats(){
@@ -1497,7 +1580,8 @@ function extEmptyRetry(msg,onTap){
   d.addEventListener('click',onTap);
   return d;
 }
-function renderExtRemoteBody(){
+function renderExtRemoteBody(){extListMode=true;renderExtRemoteBodyInner();restoreScrollSoon('externalView');}
+function renderExtRemoteBodyInner(){
   const st=extRemote;
   if(!st)return;
   const body=$('extBody');
@@ -1513,6 +1597,7 @@ function renderExtRemoteBody(){
   else renderExtEndTail();
 }
 async function extLocalStart(cat){
+  extListMode=true;
   const seq=++extSeq;
   $('extStatus').classList.add('hidden');
   $('extBody').classList.remove('hidden');
@@ -1525,6 +1610,7 @@ async function extLocalStart(cat){
   renderExtRemoteBody();
 }
 async function extRemoteStart(mode,key){
+  extListMode=true;
   const seq=++extSeq;
   const st={mode:mode,key:key,page:0,videos:[],more:true,busy:false,failed:''};
   extRemote=st;
@@ -1594,9 +1680,10 @@ async function extRemoteNext(seq){
     if(seq===extSeq)st.busy=false;
   }
 }
-const KJ_BUILD='v12';
+const KJ_BUILD='v13';
 console.log('KJ build '+KJ_BUILD);
-function renderExternal(){
+function renderExternal(){extListMode=true;renderExternalBody();restoreScrollSoon('externalView');}
+function renderExternalBody(){
   const body=$('extBody');
   $('extStatus').classList.add('hidden');
   body.classList.remove('hidden');
@@ -1630,32 +1717,49 @@ function renderExternal(){
   }
 }
 function renderExtDramaCard(d){
-  const div=document.createElement('div');
+  const div=document.createElement('a');
   div.className='extCard drama';
+  div.href=mkHref('d',d.id,d.name,'ext');
   div.innerHTML='<div class="extCover"><span>\ud83c\udfac</span><i class="extBadge">'+esc(d.cat||'\u77ed\u5267')+'</i></div>'+
     '<div class="extName">'+esc(d.name)+'</div>';
-  div.addEventListener('click',()=>openExtDrama(d));
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openExtDrama(d));
+  });
   $('extBody').appendChild(div);
   extCover(div.querySelector('.extCover'),d.cover);
 }
 function renderExtVideoCard(v){
-  const div=document.createElement('div');
+  const div=document.createElement('a');
   div.className='extCard video';
+  div.href=mkHref('x',v.key,v.name,'ext');
   div.innerHTML='<div class="extCover"><span>\ud83c\udf9e\ufe0f</span><i class="extBadge">'+esc(v.cat||'\u89c6\u9891')+'</i></div>'+
     '<div class="extName">'+esc(v.name)+'</div>';
-  div.addEventListener('click',()=>openExtVideo(v));
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openExtVideo(v));
+  });
   $('extBody').appendChild(div);
   extCover(div.querySelector('.extCover'),v.cover);
 }
 function renderExtNovelCard(n){
-  const div=document.createElement('div');
+  const div=document.createElement('a');
   div.className='extCard novel';
+  div.href=mkHref('e',n.id,n.name,'ext');
   div.innerHTML='<div class="extCover novel"><span>\ud83d\udcd6</span><i class="extBadge">'+esc(n.cat||'\u5c0f\u8bf4')+'</i></div>'+
     '<div class="extName">'+esc(n.name)+'</div>';
-  div.addEventListener('click',()=>openExtNovel(n));
+  div.addEventListener('click',e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0)return;
+    e.preventDefault();
+    navTo(div.getAttribute('href'),()=>openExtNovel(n));
+  });
   $('extBody').appendChild(div);
 }
 async function openExtDrama(d){
+  if(extListMode)saveScroll('externalView');
+  extListMode=false;
   extStatusHide();
   $('extTitle').textContent=d.name;
   $('extBody').innerHTML='<div class="loadingHint">加载剧集...</div>';
@@ -1672,7 +1776,7 @@ function renderExtEpisodes(d,detail){
   const head=document.createElement('div');
   head.className='extDetailHead';
   head.innerHTML='<button class="chip">← 返回</button><span class="extDetailTitle">'+esc(detail.name||d.name)+'（共'+(detail.total||detail.episodes.length)+'集）</span>';
-  head.querySelector('button').addEventListener('click',renderExternal);
+  head.querySelector('button').addEventListener('click',()=>goBack(()=>renderExternal()));
   body.appendChild(head);
   const grid=document.createElement('div');
   grid.className='extEpGrid';
@@ -1690,6 +1794,7 @@ async function playExtDrama(id,ep,title,episodes){
   let idx=eps.indexOf(ep);
   if(idx<0){eps.push(ep);idx=eps.length-1;}
   extPlaying={id:id,name:title,episodes:eps,idx:idx};
+  try{history.pushState({kjDetail:1,kjPlaying:1},' ',location.hash||'#/ext');}catch(e){}
   $('extBody').innerHTML='<div class="loadingHint">解析播放地址...</div>';
   try{
     const r=await fetch(RELAY_BASE+'/resolve?type=51dbe&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep));
@@ -1699,6 +1804,8 @@ async function playExtDrama(id,ep,title,episodes){
   }catch(e){extPlaying=null;$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtVideo(v){
+  if(extListMode)saveScroll('externalView');
+  extListMode=false;
   extStatusHide();
   extPlaying=null;
   $('extTitle').textContent=v.name;
@@ -1711,6 +1818,8 @@ async function openExtVideo(v){
   }catch(e){$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtNovel(n){
+  if(extListMode)saveScroll('externalView');
+  extListMode=false;
   extStatusHide();
   $('extTitle').textContent=n.name;
   $('extBody').innerHTML='<div class="loadingHint">加载正文...</div>';
@@ -1727,7 +1836,7 @@ function renderExtNovel(n,data){
   const head=document.createElement('div');
   head.className='extDetailHead';
   head.innerHTML='<button class="chip">← 返回</button><span class="extDetailTitle">'+esc(data.title||n.name)+'</span>';
-  head.querySelector('button').addEventListener('click',renderExternal);
+  head.querySelector('button').addEventListener('click',()=>goBack(()=>renderExternal()));
   body.appendChild(head);
   const wrap=document.createElement('div');
   wrap.className='extNovelBody';
@@ -1848,11 +1957,17 @@ document.querySelectorAll('.extSeg').forEach(b=>{
     extCat=null;extRemote=null;extKwRemote=null;extKw='';extSeq++;
     const _si=$('extSearchInput');if(_si)_si.value='';
     document.querySelectorAll('.extSeg').forEach(x=>x.classList.toggle('active',x===b));
+    extListMode=true;resetExtScroll();
     renderExternal();
   });
 });
-$('extBack').addEventListener('click',()=>showView('mainView'));
+$('extBack').addEventListener('click',()=>{
+  const st=history.state||{};
+  if(st.kjFromTab){history.back();return;}
+  switchMode(lastTabMode);
+});
 function extDoSearch(){
+  extListMode=true;resetExtScroll();
   const v=($('extSearchInput').value||'').trim();
   if(extSection!==1){extKw=v.toLowerCase();renderExternal();return;}
   if(!v){extKwRemote=null;extKw='';extCat=null;extRemote=null;extSeq++;renderExternal();return;}
@@ -1863,6 +1978,7 @@ function extDoSearch(){
   renderExternal();
 }
 $('extSearchInput').addEventListener('input',()=>{
+  extListMode=true;resetExtScroll();
   const v=$('extSearchInput').value.trim();
   extKw=v.toLowerCase();
   if(extSection!==1){renderExternal();return;}
@@ -1874,6 +1990,7 @@ $('extSearchInput').addEventListener('input',()=>{
 $('extSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();extDoSearch();}});
 (function(){const sb=$('extSearchBtn');if(sb)sb.addEventListener('click',extDoSearch);})();
 $('extBody').addEventListener('scroll',()=>{
+  if(Date.now()<scrollGuardUntil)return;
   const el=$('extBody');
   if(!extRemote||!extRemote.more||extRemote.busy)return;
   if(el.scrollTop+el.clientHeight>=el.scrollHeight-320)extRemoteNext(extSeq);
@@ -1888,8 +2005,80 @@ videoEl.addEventListener('ended',()=>{
   if(extPlaying&&extPlaying.idx<extPlaying.episodes.length-1)plSwitch(extPlaying.idx+1);
 });
 
+/* ===== hash routes ===== */
+function mkHref(k,id,name,b){return '#/'+k+'/'+encodeURIComponent(id)+'?n='+encodeURIComponent(name||'')+'&b='+b;}
+function navTo(hash,opener){
+  if(location.hash===hash){opener();return;}
+  try{history.pushState({kjDetail:1},' ',hash);}catch(e){}
+  opener();
+}
+function goBack(fallback){
+  const st=history.state||{};
+  if(st.kjDetail||st.kjFromTab){history.back();return;}
+  if(typeof fallback==='function')fallback();
+}
+function parseQS(q){
+  const o={};
+  if(!q)return o;
+  for(const p of q.split('&')){
+    if(!p)continue;
+    const i=p.indexOf('=');
+    const k=i<0?p:p.slice(0,i);
+    const v=i<0?'':p.slice(i+1);
+    try{o[k]=decodeURIComponent(v.replace(/\+/g,' '));}catch(e){o[k]=v;}
+  }
+  return o;
+}
+function syncHash(target){
+  try{
+    if(location.hash===target)return;
+    if(target==='#/ext'&&/^#\/m\/\d+$/.test(location.hash))history.pushState({kjBase:1,kjFromTab:1},' ',target);
+    else history.replaceState({kjBase:1},' ',target);
+  }catch(e){}
+}
+function applyRoute(){
+  const h=location.hash||'';
+  let m;
+  if(h==='#/ext'){extListMode=true;openExternal();return;}
+  if((m=/^#\/m\/(\d+)$/.exec(h))){
+    const n=parseInt(m[1]);
+    if(n===mode&&grid.children.length>0){showView('mainView');restoreScrollSoon('mainView');}
+    else{switchMode(n);if(currentViewId()!=='mainView')showView('mainView');}
+    return;
+  }
+  if((m=/^#\/([cvfndxe])\/([^?]+)(?:\?(.*))?$/.exec(h))){
+    let id=m[2];try{id=decodeURIComponent(id);}catch(e){}
+    const q=parseQS(m[3]||'');
+    openFromRoute(m[1],id,q.n||'');
+    return;
+  }
+  switchMode(0);
+}
+function openFromRoute(k,id,name){
+  if(k==='c'){openComic({id:id,name:name});return;}
+  if(k==='v'){openVod({vod_id:id,vod_name:name});return;}
+  if(k==='f'){openForum({id:id,title:name,hits:0,boardName:''});return;}
+  if(k==='n'){openNovel({id:id,name:name});return;}
+  if($('externalView').classList.contains('hidden')){extListMode=false;showView('externalView');}
+  if(k==='d'){openExtDrama({id:id,name:name});return;}
+  if(k==='x'){openExtVideo({key:id,name:name});return;}
+  openExtNovel({id:id,name:name});
+}
+window.addEventListener('popstate',()=>{applyRoute();});
+
 /* ===== init ===== */
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
-switchMode(0);
+(function boot(){
+  const h=location.hash||'';
+  if(/^#\/([cvfndxe])\//.test(h)){
+    const q=parseQS(h.indexOf('?')>=0?h.slice(h.indexOf('?')+1):'');
+    const parent=(q.b==='ext')?'#/ext':('#/m/'+((q.b!==undefined&&q.b!=='')?q.b:'0'));
+    try{history.replaceState({kjBase:1},' ',parent);history.pushState({kjDetail:1},' ',h);}catch(e){}
+    applyRoute();
+    return;
+  }
+  if(!h||h==='#'||h==='#/'){try{history.replaceState({kjBase:1},' ','#/m/0');}catch(e){}}
+  applyRoute();
+})();
