@@ -2764,7 +2764,7 @@ function tgSavePos(force){
   tgPosTimer=setTimeout(run,600);
 }
 
-const KJ_BUILD='v19';
+const KJ_BUILD='v31';
 console.log('KJ build '+KJ_BUILD);
 function renderExternal(){extListMode=true;renderExternalBody();restoreScrollSoon('externalView');}
 function renderExternalBody(){
@@ -2874,6 +2874,15 @@ function renderExtEpisodes(d,detail){
   }
   body.appendChild(grid);
 }
+// iOS/Safari 原生 HLS 对 MIME 敏感, 走 worker 代理(text/plain 的源站清单会被拒); 其它浏览器直连 CDN 更快。
+function extHlsUrl(raw,type,id,ep,key){
+  const apple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.userAgent.indexOf('Mac')>=0&&navigator.maxTouchPoints>1);
+  if(!apple)return raw;
+  let q='/hls?type='+type;
+  if(type==='51dbe')q+='&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep);
+  else q+='&key='+encodeURIComponent(key);
+  return RELAY_BASE+q;
+}
 async function playExtDrama(id,ep,title,episodes){
   extStatusHide();
   const eps=(episodes&&episodes.length)?episodes.slice():[ep];
@@ -2886,7 +2895,7 @@ async function playExtDrama(id,ep,title,episodes){
     const r=await fetch(RELAY_BASE+'/resolve?type=51dbe&id='+encodeURIComponent(id)+'&ep='+encodeURIComponent(ep));
     const j=await r.json();
     if(j.error||!j.m3u8)throw new Error(j.error||'解析失败');
-    openExtPlay(j.m3u8, title+' 第'+ep+'集');
+    openExtPlay(extHlsUrl(j.m3u8,'51dbe',id,ep), title+' 第'+ep+'集');
   }catch(e){extPlaying=null;$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtVideo(v){
@@ -2900,7 +2909,7 @@ async function openExtVideo(v){
     const r=await fetch(RELAY_BASE+'/resolve?type=91&key='+encodeURIComponent(v.key));
     const j=await r.json();
     if(j.error||!j.m3u8)throw new Error(j.error||'解析失败');
-    openExtPlay(j.m3u8, v.name);
+    openExtPlay(extHlsUrl(j.m3u8,'91',null,null,v.key), v.name);
   }catch(e){$('extBody').innerHTML='<div class="loadingHint">加载失败: '+esc(e.message)+'</div>';}
 }
 async function openExtNovel(n){
@@ -2980,7 +2989,7 @@ async function plSwitch(i){
     extPlaying.idx=i;
     playerTitle.textContent=extPlaying.name+' 第'+eps[i]+'集';
     plUpdateNav();plBuildList();
-    await plPlay(j.m3u8);
+    await plPlay(extHlsUrl(j.m3u8,'51dbe',extPlaying.id,eps[i]));
   }catch(e){
     playerStatus.textContent='第 '+eps[i]+' 集播放失败: '+e.message;
   }finally{
